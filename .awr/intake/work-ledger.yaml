@@ -1284,3 +1284,29 @@ work_items:
       - "tests/test_publish_public.py 新增 `test_detector_list_must_not_self_hit_the_mirror`：占位符碰撞必须报出来，字符类写法不许误报"
       - "私有侧实测：ci_check --fast 8 步全绿（扫描 4.1/4.2 均无命中）"
       - "公开侧实测：重新同步后公开副本 ci.yml 的扫描行已带字符类写法，新鲜克隆里 ci_check --fast 8 步全绿、两条扫描均无命中；硬标识（服务器 IP、运维账号、私钥路径）无残留，唯二命中是发布工具自身的拼装串（`\"skillhh\" + \"-prod\"` 这类，用来匹配真身再替换，属预设）"
+
+  - id: KBP-057
+    title: README 重排——按"你想干的事"分层，补上已知边界
+    status: completed
+    goal: goal#session-memory
+    priority: P2
+    required: false
+    summary: >
+      用户反馈"readme 需要好好组织更新一下，现在太乱了"。诊断：① 没有分层——"30 秒跑通 demo"
+      和"改完代码怎么让宿主加载新版本"（cachebuster 重装）挤在同一层，读者要自己过滤；
+      ② 开发细节外溢——Codex 面生成、生成物不许手改这些只有改插件的人需要的内容占了大量篇幅，
+      而 CONTRIBUTING 里早已写全；③ 全是"怎么用"，没有一处写"做不到什么"。
+    acceptance:
+      - 新读者能按"先跑通 / 真用起来 / 懂设计 / 改代码"四条路各找一处入口。
+      - 仓库里所有指向 README 小节名的引用（SUPPORT.md、docs/README.md）跟着改，不留死指针。
+      - 机器检查不许被改崩：README 的 `Python 3.9+` 声明必须仍在（repo invariants 会读），
+        必含文件清单不变（validate_oss）。
+    next_action: 已收口。改 README 后照常跑 `py -3 tools/ci_check.py --py-floor`，再同步公开镜像。
+    evidence:
+      - "开头加分流表（先跑通 / 真用起来 / 懂设计 / 改代码），四条路各指一处真链接"
+      - "新增三块缺的内容：「它解决什么问题」（知识 vs 记忆两条链路的落点与触发方式对比表）、「装之前要有什么」（前置条件清单）、「已知边界」（五条明说做不到或未验证的事：捕获靠命令驱动、commit 会花钱、实时组件分三层且 Doris 未验证、rules 不许手改、hook 失败会被当放行）"
+      - "合并重复：环境 / 安装 / 装完必做（adapt_hooks 那步单独成节）/ 三条命令（demo、单测、ci_check）压进「快速开始」；双宿主差异从长段落改成一张表加三条要点；「改完插件代码」压成一节，细节留在 CONTRIBUTING"
+      - "链接自检：README 里 16 个相对链接全部命中真实文件（脚本逐条 Test-Path），四个锚点（#快速开始 / #安装 / #日常命令 / #七个环节）都有对应标题"
+      - "死指针修复：docs/README.md 里指向『README 的发布一节』的那行改指到新的「日常命令」表；SUPPORT.md 的「快速开始」引用仍然有效（保留了节名）"
+      - "CHANGELOG 的 [Unreleased] 补一条 Changed，写清改了哪三件事"
+      - "机器检查：`ci_check --py-floor` 9 步全绿（含 3.9 与 3.12 两端单测、validate_oss、两条脱敏扫描、hook 接线）；`Python 3.9+` 声明仍在，repo invariants 未红"

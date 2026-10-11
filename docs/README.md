@@ -20,7 +20,7 @@
 | 结构化（骨架 5 步 + 生成） | [ARCHITECTURE.md](ARCHITECTURE.md) 第 4 节 |
 | 质检（口径冲突 / 六层链接 / 索引） | [ARCHITECTURE.md](ARCHITECTURE.md) 第 5 节 |
 | 审阅与沉淀（提案、终签） | [ARCHITECTURE.md](ARCHITECTURE.md) 第 6 节 |
-| 发布（git + OpenViking 双轨） | [../README.md](../README.md) 的发布一节 + [ARCHITECTURE.md](ARCHITECTURE.md) 第 1 节 |
+| 发布（git + OpenViking 双轨） | [../README.md](../README.md)「日常命令」表里的 `/kb-publish` + [ARCHITECTURE.md](ARCHITECTURE.md) 第 1 节 |
 | 反哺（漂移与回灌） | [realtime-sources.md](realtime-sources.md) 第八节（组件侧漂移）；平台侧见 ARCHITECTURE 第 1 节 |
 | 会话记忆（为什么没记录、怎么开） | [session-memory.md](session-memory.md) |
 | 本地实验环境（起真实组件） | [realtime-sources.md](realtime-sources.md) 第五、八节 |
