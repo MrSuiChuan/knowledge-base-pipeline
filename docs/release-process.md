@@ -52,6 +52,8 @@ git push origin main --tags
 2. 跑 mock 全流程：`python -m unittest discover -s tests`；
 3. 装到宿主后跑一次 `demo`，确认 `.kb/repo/.kb-manifest.json` 里有 `kb-v1`/`kb-v2`；
 4. 核对 GitHub Release 说明与 `CHANGELOG.md` 的该版本小节一致。
+5. **同步公开镜像**（见第 7 节）：`py -3 tools/publish_public.py --check` 通过后
+   再 `--apply`；建议从公开仓库新鲜克隆一份跑一次全量用例，确认发出去的是能跑的仓库。
 
 ## 6. 回滚
 

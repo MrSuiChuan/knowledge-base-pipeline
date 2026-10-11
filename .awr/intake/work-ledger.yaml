@@ -1185,3 +1185,28 @@ work_items:
       - "engine/core/ov_memory.py 新增 MemoryClient.check_ready()（GET /ready，返回 ok/http_status/payload）；commit 在提交前调用它，未通过即抛 memory_not_ready 并拒绝提交（附 ready 详情与下一步：先修端点再用 ov-check 自检）"
       - "用例 2 条：未就绪时 commit 必须拒发请求且不留 commit-*.json 留证；就绪探针要如实带回 http_status 与 payload"
       - "本机实例状态核对：Get-NetTCPConnection -LocalPort 1933 无监听——本机那台已停；文档给出四判据（version=0.3.24 / auth_mode=dev / 无 account_id / ready 可能失败）用于一眼认出它"
+
+  - id: KBP-053
+    title: 公开镜像同步：私有主干脱敏后发布到 knowledge-base-pipeline，并保持两边一致
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      使用者要求把最新代码发到公开仓库 MrSuiChuan/knowledge-base-pipeline，发布前脱敏，
+      并且以后公私两边保持同步。做法不是"手工复制一份"，而是**可复现的脱敏快照**：
+      tools/publish_public.py --check（只读体检）/ --apply（生成快照 → 提交 → 推送）。
+    acceptance:
+      - 公开仓库内容与私有主干一致，只差脱敏替换；残留检查必须过。
+      - 公开副本自己跑得起来（自己的自检与全量用例是绿的）。
+      - 同步是可重复的：改完主干再跑一次 --apply 即可，不需要记得改了哪些文件。
+    depends_on: []
+    next_action: 已收口。以后每次要公开就：改主干 → 提交 → `py -3 tools/publish_public.py --apply`。
+    evidence:
+      - "工具：tools/publish_public.py（字面量有序替换表 + 残留检查 + 快照复制 + 镜像提交推送）；replacements 覆盖线上实例 IP/端口、主机名、账号/用户/租户、密钥文件与 SSH 私钥路径、本机工作区"
+      - "唯一豁免 .github/workflows/ci.yml 的禁止词列表——替换它等于废掉脱敏检测；残留检查按文件放行并拦住其它残留"
+      - "首次发布：公开仓库 af4c010(Initial) → 02af8e1(首次同步) → c53305e(重算派生后同步)；102 个文件"
+      - "公开副本验证（**从远端新鲜克隆**）：硬标识残留扫描为空；占位符如约出现（ledger 15 处、session-memory 6 处、release-process 3 处）；py -3 tools/validate_oss.py 5 项全 OK；py -3 tools/publish_public.py --check 报『需要脱敏 0 个』；全量 py -3 -m pytest tests -q → **151 passed**（与私有主干同数）"
+      - "三处自洽性缺口的修复（都是 public 副本先红才发现的）：① 用例样本与 HARD_PATTERNS 里的字面量要运行时拼装，否则公开副本把它们替换成占位符后断言/规则一起失效；② 规则表源串同理拼装，否则规则退化成恒等映射、--check 永远报『2 个文件需脱敏』；③ **发布时在镜像里重算派生产物**——脱敏改了 engine/core/ov_remote.py 的注释后，engine/.engine-manifest.json 的 sha256 与镜像内容对不上，公开仓库的 EngineManifestTests 直接红"
+      - "文档：docs/release-process.md 第 7 节（公开镜像同步：替换表 + 三条纪律）、README『公开镜像与私有主干』一节（解释公开仓库里的 <openviking-host> 等占位符是故意的）"
+      - "用例：tests/test_publish_public.py 6 条（替换正确、长串优先、兄弟项目真名不动、残留会被抓、CI 检测行豁免、真仓库 --check 必须过）"
