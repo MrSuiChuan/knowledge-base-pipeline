@@ -1078,7 +1078,7 @@ work_items:
       - "顺带修掉插件的真缺口（见下一条 KBP-048）：ov-check 对扁平 /health 会解包成 null，看不清健康与就绪"
       - "**服务端实机核对（用户给了 ssh -i <ssh-key-file> root@<openviking-host>）**：主机 <host>（Alibaba Cloud Linux 8，已运行 76 天）；`/etc/systemd/system/openviking.service` 的 ExecStart=/data/ovenv/bin/openviking-server --host 0.0.0.0 --port 1933 --config /root/.openviking/ov.conf，WorkingDirectory=/data/openviking，自 2026-09-09 08:34 起 active(running)，MainPID 178621 监听 0.0.0.0:1933"
       - "**生效配置原文（脱敏）**：/root/.openviking/ov.conf（mtime 2026-09-09 08:34:51）——storage.workspace=/data/openviking/data；embedding.dense: provider=volcengine、model=doubao-embedding-vision-251215、dimension=1024、input=multimodal、api_base=https://ark.cn-beijing.volces.com/api/coding/v3；vlm: provider=volcengine、model=doubao-seed-2-0-lite-260428、max_retries=2；server.auth_mode=api_key（api_key/root_api_key 已脱敏，未落任何日志）"
-      - "**线上状态盘点（这直接回答『为什么没有会话记忆』）**：GET /api/v1/sessions → []（0 个会话）；GET /api/v1/stats/memories → total_memories=0（0 条记忆）；observer/system 的 SessionCommit 队列 processed=0；但 viking://resources/ 下有 domain/domains/rules 共 266 个文件（abstract 已生成）——**知识发布在用、模型健康，而会话记忆一条都没有，因为从来没人在这台实例上建过会话**。key 对应用户 <user>（租户 <account>），读 default 租户的 memories 目录返回 403 属预期"
+      - "**线上状态盘点（这直接回答『为什么没有会话记忆』）**：GET /api/v1/sessions → []（0 个会话）；GET /api/v1/stats/memories → total_memories=0（0 条记忆）；observer/system 的 SessionCommit 队列 processed=0；但 viking://resources/ 下有 domain/domains/rules 共 266 个文件（abstract 已生成）——**知识发布在用、模型健康，而会话记忆一条都没有，因为从来没人在这台实例上建过会话**。key 对应用户 <user>（租户为内部代号，脱敏规则在本地词表里），读 default 租户的 memories 目录返回 403 属预期"
       - "主机资源：磁盘 40G 用 28G（75%）、内存 1870MB（used 587MB）；这次巡检全程只读，未修改线上任何文件与服务配置"
 
   - id: KBP-048
@@ -1220,7 +1220,7 @@ work_items:
     summary: >
       用户报"私有仓库 CI 报错"。按 CI 的实际命令在**新鲜克隆**里逐步复现：unittest 那步是绿的
       （Ran 152 tests OK），挂的是 `provenance/secret scan` —— 我上一轮新增的脱敏工具与用例里
-      写了内部代号（`xhdw`，7 处命中）。这不是误报：CI 的规矩就是仓库里不许出现内部代号，
+      写了内部代号（7 处命中）。这不是误报：CI 的规矩就是仓库里不许出现内部代号，
       脱敏工具也不该例外。
     acceptance:
       - 在新克隆里按 CI 的每一步复现出失败点，而不是猜。
@@ -1234,3 +1234,27 @@ work_items:
       - "工具增强：load_terms()（每行 `源串 => 替换`，跳过空行与 # 注释，缺 => 的行给提示）+ --terms 参数 + 外部规则排在更具体位置；check 会打印『外部词表 …：N 条规则』或『未找到外部词表（只有内置形状规则生效）』"
       - "本地按 CI 全流程复验：3.12 与 3.9 两端 `unittest discover -s tests` 均 Ran 152 tests OK；两条禁止词扫描均无命中；compileall 干净；validate_oss 5/5；hooks job（adapt_hooks --check + test_hook_wiring + CliInvocationTests）6 条 OK"
       - "再用**新鲜克隆**复核：私有仓库 0b265d0 的两条扫描均无命中；公开镜像同步后，公开副本自己的禁止词扫描同样无命中、硬标识残留干净、--check 报 0 处需脱敏"
+
+  - id: KBP-055
+    title: 收紧 CI 脱敏扫描到隐藏目录，并加一条本地 CI 预检
+    status: completed
+    goal: goal#session-memory
+    priority: P1
+    required: true
+    summary: >
+      KBP-054 的复盘暴露两个结构问题：① `rg` 默认跳过隐藏条目，而 `.awr/intake/work-ledger.yaml`
+      是**跟踪文件**却从未被扫描——规矩写着"仓库里不许出现内部代号"，台账却是法外之地；
+      ② 本地只有 `pytest`，而 CI 跑的是 `unittest discover` + compileall + validate_oss +
+      两条扫描 + hooks job，"pytest 绿"根本买不到"CI 绿"。
+    acceptance:
+      - 扫描覆盖隐藏目录（台账在内），并在新克隆里确认无命中。
+      - 一条本地命令能复现 CI 全流程，且与 ci.yml 不会各说各话。
+    depends_on: [KBP-054]
+    next_action: 已收口。提交前跑 `py -3 tools/ci_check.py --py-floor`。
+    evidence:
+      - "ci.yml 两条扫描加 `--hidden` 与显式 `-g '!.git/**'`（.tmp 等被 .gitignore 排除的 rg 本来就不扫）"
+      - "加 --hidden 后当场命中 2 处，都在台账里（KBP-047 的租户描述、KBP-054 的复述）——正是漏检的那块；已改写措辞：租户改述为『内部代号，脱敏规则在本地词表里』，不再出现代号本身"
+      - "新增 tools/ci_check.py：按 ci.yml 顺序跑 10 步（单测 / compileall / validate_oss / 两条脱敏扫描 / hook 适配 / 启动器检查 / 真调用 / 门控不回归 / 最低版本单测）；`--fast` 跳单测，`--py-floor` 加跑下限版本（本机 `py -3.9` 找不到，脚本会去找 uv 装的 cpython-3.9）"
+      - "一致性由 tests/test_ci_check.py 保证：扫描模式**从 ci.yml 读**（工具不另抄一份），并断言 ci.yml 两行都带 --hidden、显式排除 .git、workflow 里每条 run 都有对应动作；用例自身也不许出现扫描列表里的那个词——第一版把真词直接写进了用例，被 ci_check 当场抓出来（工具当场证明自己有用）"
+      - "实测：`ci_check --fast` 8 步全过；`ci_check --py-floor` **10 步全过**（含 3.9 单测）；本地词表补兜底规则（更长的规则先命中），防将来再出现裸写"
+      - "CONTRIBUTING 的提交前清单改成先跑 ci_check（并保留逐条命令与『pytest 绿 ≠ CI 绿』的教训）"

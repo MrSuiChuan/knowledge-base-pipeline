@@ -5,7 +5,21 @@ Thanks for considering a contribution to knowledge-base-plugin.
 ## Development loop
 
 ```bash
-python -m unittest discover -s tests   # unit + demo tests
+py -3 tools/ci_check.py --py-floor     # 一条命令 = 把 CI 搬回本机（推荐）
+```
+
+它按 `.github/workflows/ci.yml` 的顺序跑：单测（当前解释器 + 最低支持版本）、compileall、
+`validate_oss`、**两条脱敏扫描**、hook 接线（adapt + 真调用 + 门控不回归）。
+`--fast` 跳过单测；`--py-floor` 额外用 README 承诺的下限版本再跑一遍单测。
+
+**为什么要有这条**：本仓库吃过一次亏——`pytest` 全绿但 CI 红在脱敏扫描上
+（2026-10-11 实测：新增的脱敏工具把内部代号写进了源码，`.awr` 台账又因为 `rg` 默认跳过
+隐藏目录而漏检）。`pytest` run 的是**一部分**检查，CI 跑的是另一套；提交前跑 ci_check 就不会再撞。
+
+也可以逐个跑（与 CI 等价）：
+
+```bash
+python -m unittest discover -s tests   # unit + demo tests（CI 用这条，不是 pytest）
 python -m compileall -q engine hooks tests tools
 python tools/validate_oss.py           # 开源标准：文件齐全 / 许可头 / 清单字段 / 无个人路径
 claude plugin validate .

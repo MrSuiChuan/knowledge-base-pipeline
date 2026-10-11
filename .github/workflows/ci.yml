@@ -26,8 +26,11 @@ jobs:
       - run: python tools/validate_oss.py
       - name: provenance/secret scan
         run: |
-          ! rg -n -i "xhdw|alipay|复刻|调研文档|knowledge_base" . -g '!.github/**' || exit 1
-          ! rg -n "ark-[A-Za-z0-9_-]{20,}|rvk_[A-Za-z0-9_-]{20,}" . -g '!.github/**' || exit 1
+          # --hidden：连 .awr 这类隐藏目录一起扫。rg 默认跳过隐藏条目，
+          # 台账（.awr/intake/work-ledger.yaml 是跟踪文件）曾因此漏检过内部代号。
+          # .git 要显式排除；.tmp 等被 .gitignore 排除的目录 rg 本来就不扫。
+          ! rg -n --hidden -i "<account>|alipay|复刻|调研文档|knowledge_base" . -g '!.github/**' -g '!.git/**' || exit 1
+          ! rg -n --hidden "ark-[A-Za-z0-9_-]{20,}|rvk_[A-Za-z0-9_-]{20,}" . -g '!.github/**' -g '!.git/**' || exit 1
 
   hooks:
     # 这条 job 存在的唯一理由：hook 层的失败是静默的（启动器不存在 -> 宿主 fail-open
