@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "note": "实时组件知识源注册表：谁、什么角色、用什么采集器、需要哪些连接键、本机验证到哪一层——只写这一份。连接信息（装在哪、地址是什么）不在这里，它们在项目级 .kb/config.json 的 sources.<组件id> 下。正文（README / ARCHITECTURE / skills）只引用本文件，不复制版本号与命令串。",
+  "tiers": {
+    "1": "采集器已实现，且在本机对真实组件跑通过（有原始输出留证）",
+    "2": "采集器已实现，但本机还没对真实组件跑过——状态就写“未验证”",
+    "3": "只登记角色与连接形状，没有采集器；不假装支持"
+  },
+  "roles": {
+    "log": "消息 / 日志存储",
+    "serving": "实时分析 / 服务层"
+  },
+  "categories": {
+    "BASIC_INFO": "表基础信息（归属/负责人/行量/频率）",
+    "COLUMN_BASIC_INFO": "字段语义",
+    "DDL_SQL": "建表语句 / 结构约束",
+    "SCHEDULE_TASK": "调度任务",
+    "QUALITY_RULE": "质量约束",
+    "PARTITION_INFO": "分区 / 切分信息"
+  },
+  "components": [
+    {
+      "id": "oss_kafka",
+      "display": "Apache Kafka",
+      "role": "log",
+      "collector": "kafka_cli",
+      "tier": 1,
+      "required_keys": ["bin", "bootstrap_servers"],
+      "probe": {"cmd": ["${bin}/kafka-topics.sh", "--bootstrap-server", "${bootstrap_servers}", "--list"]},
+      "coverage": {
+        "BASIC_INFO": "collect",
+        "COLUMN_BASIC_INFO": "not_applicable",
+        "DDL_SQL": "not_applicable",
+        "SCHEDULE_TASK": "not_applicable",
+        "QUALITY_RULE": "collect",
+        "PARTITION_INFO": "collect"
+      },
+      "not_applicable_reasons": {
+        "COLUMN_BASIC_INFO": "消息组件没有字段 schema；主题的消息结构在上游生产者或 Schema Registry，不在 broker 里",
+        "DDL_SQL": "消息组件没有建表语句；等价物是主题创建参数，已落在 BASIC_INFO / PARTITION_INFO",
+        "SCHEDULE_TASK": "主题是持续写入的，没有调度任务这一层；产出节奏在上游作业"
+      },
+      "verified": {
+        "on": "2026-10-07",
+        "env": "WSL2 Debian 13 + OpenJDK 21 + Kafka 4.1.2 单机 KRaft（~/oss/kafka_2.13-4.1.2）",
+        "capabilities": [
+          "kafka-topics.sh --describe 解析出主题/分区数/副本因子",
+          "就绪探测走 kafka-topics --list（问的是 broker 本身，不是端口），经 runner 在 WSL 内执行",
+          "kafka-configs.sh --describe 解析出主题级配置并转成质量约束",
+          "真实采集产出 metadata-snapshot，source 指向 oss:oss_kafka"
+        ],
+        "gaps": [
+          "主题属主不在 broker（owner 记为 unknown，属主在平台目录里）",
+          "消息 schema 需要 Schema Registry 才有，本期未接"
+        ]
+      }
+    },
+    {
+      "id": "oss_doris",
+      "display": "Apache Doris",
+      "role": "serving",
+      "collector": "mysql_sql",
+      "tier": 2,
+      "required_keys": ["bin", "host", "port", "user"],
+      "optional_keys": ["password", "with_ddl", "max_ddl_tables"],
+      "system_schemas": ["information_schema", "mysql", "sys", "__internal_schema", "performance_schema"],
+      "probe": {"cmd": ["${bin}", "-h", "${host}", "-P", "${port}", "-u", "${user}", "-e", "SELECT 1"]},
+      "coverage": {
+        "BASIC_INFO": "collect",
+        "COLUMN_BASIC_INFO": "collect",
+        "DDL_SQL": "collect",
+        "SCHEDULE_TASK": "not_applicable",
+        "QUALITY_RULE": "not_applicable",
+        "PARTITION_INFO": "collect"
+      },
+      "not_applicable_reasons": {
+        "SCHEDULE_TASK": "调度不在组件内，在上游任务系统；组件只提供查询与存储",
+        "QUALITY_RULE": "质量规则不在组件内；组件内的等价物是表属性，已落在 DDL_SQL"
+      },
+      "verified": null
+    },
+    {
+      "id": "oss_starrocks",
+      "display": "StarRocks",
+      "role": "serving",
+      "collector": "mysql_sql",
+      "tier": 1,
+      "required_keys": ["bin", "host", "port", "user"],
+      "optional_keys": ["password", "with_ddl", "max_ddl_tables"],
+      "system_schemas": [
+        "information_schema",
+        "mysql",
+        "sys",
+        "__internal_schema",
+        "performance_schema",
+        "_statistics_"
+      ],
+      "probe": {"cmd": ["${bin}", "-h", "${host}", "-P", "${port}", "-u", "${user}", "-e", "SELECT 1"]},
+      "coverage": {
+        "BASIC_INFO": "collect",
+        "COLUMN_BASIC_INFO": "collect",
+        "DDL_SQL": "collect",
+        "SCHEDULE_TASK": "not_applicable",
+        "QUALITY_RULE": "not_applicable",
+        "PARTITION_INFO": "collect"
+      },
+      "not_applicable_reasons": {
+        "SCHEDULE_TASK": "调度不在组件内，在上游任务系统；组件只提供查询与存储",
+        "QUALITY_RULE": "质量规则不在组件内；组件内的等价物是表属性，已落在 DDL_SQL"
+      },
+      "verified": {
+        "on": "2026-10-07",
+        "env": "WSL2 Debian 13 + Docker 26.1.5 + StarRocks 3.3.9（FE/BE 各一容器，本机已有镜像）",
+        "capabilities": [
+          "就绪探测走 mysql 客户端 SELECT 1（问组件本身，而不是只看端口）",
+          "information_schema.TABLES/COLUMNS/PARTITIONS + SHOW CREATE TABLE 采集落进 6 类契约",
+          "建库建表（DUPLICATE KEY + RANGE 分区）写 3 行读回 3 行；6 个字段与中文注释采得到，DDL 639 字符 / 18 行完整落盘",
+          "组件侧漂移（ALTER TABLE 加字段）能被 refresh 的 drift 比对发现"
+        ],
+        "gaps": [
+          "BE 注册要显式给容器 IP；本机 WSL2 下 9030 从 Windows 侧不可达，探活与采集都必须经 runner 在 WSL 内执行",
+          "StarRocks 多一个内部统计库 _statistics_：不单独排除就会把系统表当业务表采进来（首次真跑踩到，已加进本组件的 system_schemas）",
+          "注释类改动有传播延迟：ALTER 完立刻采集读到的还是旧注释，约 45 秒后才可见；字段增减则立刻可见",
+          "调度与质量规则不在组件内，按 NOT_APPLICABLE 标注"
+        ]
+      }
+    },
+    {
+      "id": "oss_clickhouse",
+      "display": "ClickHouse",
+      "role": "serving",
+      "collector": "clickhouse_sql",
+      "tier": 1,
+      "required_keys": ["bin", "container"],
+      "optional_keys": ["user", "password", "with_ddl", "max_ddl_tables"],
+      "system_schemas": ["system", "INFORMATION_SCHEMA", "information_schema"],
+      "probe": {
+        "cmd": ["${bin}", "exec", "${container}", "clickhouse-client", "--query", "SELECT 1"]
+      },
+      "coverage": {
+        "BASIC_INFO": "collect",
+        "COLUMN_BASIC_INFO": "collect",
+        "DDL_SQL": "collect",
+        "SCHEDULE_TASK": "not_applicable",
+        "QUALITY_RULE": "not_applicable",
+        "PARTITION_INFO": "collect"
+      },
+      "not_applicable_reasons": {
+        "SCHEDULE_TASK": "调度不在组件内，在上游任务系统",
+        "QUALITY_RULE": "质量规则不在组件内"
+      },
+      "verified": {
+        "on": "2026-10-07",
+        "env": "WSL2 Debian 13 + Docker 26.1.5 + clickhouse/clickhouse-server:24.8（单容器）",
+        "capabilities": [
+          "就绪探测走 clickhouse-client --query 'SELECT 1'（问组件本身，不是只看端口）",
+          "system.tables / system.columns / system.parts + SHOW CREATE TABLE 采集落进 6 类契约",
+          "客户端参数经 docker exec -i 传入，SQL 走 stdin（反引号与保留字列名不会被 shell 吃掉）"
+        ],
+        "gaps": [
+          "system.tables.total_rows 是统计值，会抖动——已由易变字段规则挡在漂移之外",
+          "调度与质量规则不在组件内，按 NOT_APPLICABLE 标注",
+          "需要容器内客户端可用（bin=docker + container=<名字>）；裸装 ClickHouse 的机器可把 bin 指到 clickhouse-client 并另配参数"
+        ]
+      }
+    },
+    {
+      "id": "oss_pulsar",
+      "display": "Apache Pulsar",
+      "role": "log",
+      "collector": null,
+      "tier": 3,
+      "required_keys": ["bin", "service_url"],
+      "probe": {"tcp": "${service_url}"},
+      "coverage": {
+        "BASIC_INFO": "collect",
+        "COLUMN_BASIC_INFO": "not_applicable",
+        "DDL_SQL": "not_applicable",
+        "SCHEDULE_TASK": "not_applicable",
+        "QUALITY_RULE": "collect",
+        "PARTITION_INFO": "collect"
+      },
+      "not_applicable_reasons": {
+        "COLUMN_BASIC_INFO": "消息组件没有字段 schema；结构在上游生产者或 Schema Registry，不在 broker 里",
+        "DDL_SQL": "消息组件没有建表语句；等价物是主题策略",
+        "SCHEDULE_TASK": "主题是持续写入的，没有调度任务这一层"
+      },
+      "verified": null
+    },
+    {
+      "id": "oss_flink",
+      "display": "Apache Flink",
+      "role": "compute",
+      "collector": null,
+      "tier": 3,
+      "required_keys": ["home", "rest_endpoint"],
+      "probe": {"http": "${rest_endpoint}/overview"},
+      "coverage": {
+        "BASIC_INFO": "collect",
+        "COLUMN_BASIC_INFO": "not_applicable",
+        "DDL_SQL": "collect",
+        "SCHEDULE_TASK": "collect",
+        "QUALITY_RULE": "not_applicable",
+        "PARTITION_INFO": "not_applicable"
+      },
+      "not_applicable_reasons": {
+        "COLUMN_BASIC_INFO": "作业的算子拓扑不是表字段；表级语义在 Flink SQL 的 catalog 里",
+        "QUALITY_RULE": "质量规则不在引擎内，在数据质量平台",
+        "PARTITION_INFO": "作业没有分区概念"
+      },
+      "verified": null
+    }
+  ]
+}

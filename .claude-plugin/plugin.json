@@ -1,0 +1,17 @@
+{
+  "name": "knowledge-base-plugin",
+  "description": "数仓知识库生成流水线：采集(MCP 6类元数据)→结构化(5步业务骨架)→质检(口径冲突/六层断链/索引重建)→审阅(Owner 终签)→发布(git + OpenViking 双轨, guard 门控)→反哺(元数据回灌)→沉淀(规则提案门禁)。产出 data-development-plugin SDS 消费的 viking://resources/ 知识。",
+  "version": "1.3.0",
+  "author": {
+    "name": "AI实战技能圈"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "data-warehouse",
+    "knowledge-base",
+    "domain-knowledge",
+    "data-quality",
+    "metadata",
+    "openviking"
+  ]
+}

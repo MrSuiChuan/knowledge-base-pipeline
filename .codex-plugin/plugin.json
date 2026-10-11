@@ -1,0 +1,36 @@
+{
+  "name": "knowledge-base-plugin",
+  "version": "1.3.0+codex.20260921012208",
+  "description": "数仓知识库生成流水线：采集(MCP 元数据)→结构化(业务骨架)→质检(冲突/断链/索引)→审阅(Owner 终签)→发布(git + OpenViking 双轨)→反哺(元数据回灌)→沉淀(规则提案)。",
+  "author": {
+    "name": "AI实战技能圈"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "knowledge-base",
+    "data-warehouse",
+    "openviking",
+    "data-quality",
+    "metadata"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/claude-codex-hooks.json",
+  "interface": {
+    "displayName": "Knowledge Base Pipeline",
+    "shortDescription": "知识库七环节流水线 + 发布/审计硬门",
+    "longDescription": "把隐性、分散、易腐烂的数仓知识炼成版本化、可审计、可被 Agent 确定性消费的结构化事实。七环节各带机器门控与留证：审计不过不许发布，规则只能走提案，机器资产禁止手改。",
+    "developerName": "AI实战技能圈",
+    "category": "Productivity",
+    "capabilities": [
+      "Instructions",
+      "Lifecycle hooks",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "初始化知识库项目并生成 user 域骨架",
+      "跑一次 strict 审计，不通过就别发布",
+      "把这条长期事实沉淀成规则提案"
+    ],
+    "brandColor": "#0E7C86"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "description": "knowledge-base-plugin 门控：PreToolUse 拦截未审计发布/同步与直接手改 rules/，SessionStart 提示状态。命令使用 py -3（Windows）；macOS/Linux 请把 py -3 换成 python3。",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse.py\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/hooks/posttooluse.py\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/hooks/sessionstart.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

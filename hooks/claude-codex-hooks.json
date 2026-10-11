@@ -1,0 +1,38 @@
+{
+  "description": "knowledge-base-plugin 门控：PreToolUse 拦截未审计发布/同步、机器资产与 rules/ 直改，SessionStart 提示知识库状态。Claude Code 与 Codex 共用本文件；Windows 用 py -3，macOS/Linux 跑 tools/adapt_hooks.py 切到 python3。",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse.py\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/hooks/posttooluse.py\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 \"${CLAUDE_PLUGIN_ROOT}/hooks/sessionstart.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

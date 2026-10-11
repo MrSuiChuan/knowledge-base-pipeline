@@ -1,0 +1,1187 @@
+work_items:
+  - id: KBP-001
+    title: 仓库没有任何版本历史
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P0
+    required: true
+    summary: >
+      接管时这个仓库没有 .git——连空仓库都没有，62 个文件全部无版本管理。
+      现已建立历史并推到远端。
+    acceptance:
+      - .gitignore 补齐 .awr/ 运行时与根目录临时产物规则。
+      - 首次提交完成，工作区干净。
+      - 远端建立并可被他人 clone。
+    depends_on: []
+    next_action: 已收口。后续发版记得 push。
+    evidence:
+      - "根目录清干净（初始化预览输出已移入 .tmp/）；.gitignore 补 /_* 与 .awr 运行时规则"
+      - "新增 .gitattributes 强制 eol=lf"
+      - "首次提交 a40f159，67 个文件；远端 git@github.com:MrSuiChuan/knowledge-base-plugin.git 的 main"
+      - "从 GitHub 真克隆后跑全量：Ran 38 tests OK（当时）；克隆里 engine/core/context.py CRLF=0"
+
+  - id: KBP-002
+    title: 引擎完整性自检完全缺失
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P0
+    required: true
+    summary: >
+      原先没有 engine/.engine-manifest.json，也没有生成器。而 /kb-setup 会把
+      <插件根>/engine 复制到 .kb/engine，之后都跑这份项目内副本——它可被 agent 改写，
+      却没有任何办法发现。插件的核心主张是"机器门控不可绕"，这是它最外的缺口。
+    acceptance:
+      - tools/generate_engine_manifest.py 产出 engine/.engine-manifest.json。
+      - 引擎启动时核对 .kb/engine 副本完整性。
+      - 不变量测试覆盖清单同步。
+    depends_on: []
+    next_action: 已收口。
+    evidence:
+      - "新增 tools/generate_engine_manifest.py（纯函数 build_manifest 便于测试）"
+      - "kbp.py 新增 engine_selfcheck()，boot 里不一致即 engine_integrity 拒绝继续"
+      - "实测：未篡改 rc=0；改掉 core/gates.py 后 rc=4 并输出 engine_integrity"
+      - "tests/test_repo_invariants.py 比对清单与 engine/ 当前内容"
+
+  - id: KBP-003
+    title: 生成物没有同步门
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P0
+    required: true
+    summary: >
+      skills/kbp-* 与 .codex-plugin/plugin.json 由 tools/build_codex_surface.py 生成，
+      但 tests/CI 无核对。实测 12 个里 1 个漂移（.codex-plugin/plugin.json 是 \uXXXX
+      转义，生成器输出 UTF-8）——漂移早就存在，只是没人看见。
+    acceptance:
+      - 内存截获生成器输出，与仓库文件逐字节比对。
+      - 重跑生成器消掉差异。
+    depends_on: []
+    next_action: 已收口。
+    evidence:
+      - "新增 tests/test_generated_surface.py（3 个用例，只读不写）"
+      - "重跑生成器后漂移 0/12，且 +codex.<token> 后缀未被抹掉"
+
+  - id: KBP-005
+    title: 非 Windows 装完即静默失效
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P0
+    required: true
+    summary: >
+      hooks 硬编码 py -3；macOS/Linux 上该命令不存在 → hook 失败 → 宿主 fail-open →
+      审计门/发布门全部静默失效。tools/adapt_hooks.py 还是旧的字符串替换版（无数 --check）；
+      CI 只有 ubuntu 单平台，从不真实触发 hook。
+    acceptance:
+      - adapt_hooks.py 重写 + --check。
+      - 真跑 hooks.json 里命令的测试。
+      - CI 双平台 hooks job。
+    depends_on: []
+    next_action: 已收口。CI 首次跑过之后确认两端都执行（主 job 在 ubuntu 上会 skip 本用例，符合设计）。
+    evidence:
+      - "tools/adapt_hooks.py 重写：直接改 JSON 启动器词 + --check（启动器不在 PATH 返回非零）"
+      - "新增 tests/test_hook_wiring.py：真跑配置里的命令；启动器缺失时 skipTest 并指向 --check"
+      - "CI 新增 ubuntu+windows hooks job（先 adapt，两端都不 skip）"
+      - "README 把 adapt 提为环境要求并写清 fail-open 后果"
+      - "上线后 CI 的 windows 腿红：真因是 adapt_hooks.py 的中文进度行撞 cp1252（windows 运行器 stdout 被重定向时的编码）→ UnicodeEncodeError 退出 1，与启动器无关。三个 tools 脚本改为启动时重配 UTF-8；新增 ToolOutputEncodingTests 用 PYTHONIOENCODING=cp1252 显式复现。（提交 efcfd85）"
+      - "同时把启动器选择从「按 OS 名假定」改成「按真实可执行性探测」"
+      - "真环境复核：uv 装的真 Python 3.9.25 → 全量 55 tests OK；WSL 真 Linux → hooks job 的 adapt→check→wiring 全过"
+
+  - id: KBP-006
+    title: 重新安装路径缺失
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P0
+    required: true
+    summary: >
+      没有 tools/reinstall.py。Codex 按版本号缓存插件，版本不变就不会重新拷贝——
+      clone 下来的人改完代码，宿主仍跑旧副本。
+    acceptance:
+      - reinstall.py：重生成 Codex 面 → 校验 marketplace 源 → 换 cachebuster → codex plugin add。
+      - README 补一节。
+    depends_on: []
+    next_action: 已收口。
+    evidence:
+      - "新增 tools/reinstall.py（默认预演，--apply 才动手；含 source.path 相对用户主目录那条坑）"
+      - "实测 --apply：1.2.2+codex.20260914150500 -> 1.2.2+codex.20260920135145"
+      - "重装后源码修复当场生效：之前必被拦的 rg 读 engine/kbp.py 已放行"
+
+  - id: KBP-007
+    title: hook 关键词误伤（比数开插件更严重）
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P0
+    required: true
+    summary: >
+      analyze_command 对整条命令做子串匹配 kbp\.py|kb-publish|openviking|data-quality-kb-maintain。
+      接管期间实测被拦两次：只读检索 engine/kbp.py；以及打印一行 "=== OpenViking ... ===" 当标题。
+      更糟的是 kb-publish 是技能名——提到它就走"按发布处理 + 查审计新鲜度"，陈旧即 block。
+    acceptance:
+      - 四个标志位改为只认段首命令词。
+      - 回归用例覆盖只读形态与真调用形态。
+    depends_on: []
+    next_action: 已收口。
+    evidence:
+      - "新增 kb_invocations()：只认段首引擎脚本 / python 启动器+引擎脚本 / KB·OV CLI 可执行名"
+      - "新增 tests/test_engine.py::CliInvocationTests（3 个用例）"
+      - ".tmp/probe_kb_guard.py 走真实 hook 跑 10 条：6 条旧误伤全部放行，4 条真调用全部拦住"
+
+  - id: KBP-008
+    title: Python 下限没被验证
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P1
+    required: true
+    summary: >
+      README 写 "Python 3.9+"，CI 只跑 3.11。属于对外声明了没被验证过的下限。
+    acceptance:
+      - CI 版本矩阵两端跑全量。
+      - README 下限必须是 CI 真跑过的版本；源码能用下限语法解析。
+    depends_on: []
+    next_action: 已收口。CI 首次跑过之后确认 3.9 那一支是绿的。
+    evidence:
+      - "CI 主 job 改矩阵 [3.9, 3.12]"
+      - "本地预检：25 个文件 ast.parse(feature_version=9) 全过；无 3.10+ 专属标准库 API；无 cast/get_type_hints 这类运行时求值注解"
+      - "tests/test_repo_invariants.py 两条断言（下限在 CI 里 / 下限语法解析全部源码）"
+
+  - id: KBP-004
+    title: 版本号四处手写
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P1
+    required: true
+    summary: >
+      基础版本写在四处且无人核对：生成器 VERSION 常量、两个清单、CHANGELOG。
+      加了 reinstall.py 之后更危险——它只改 .codex-plugin。
+    acceptance:
+      - 基础版本收敛到 .claude-plugin/plugin.json。
+      - 断言三方一致。
+    depends_on: []
+    next_action: 已收口。
+    evidence:
+      - "build_codex_surface.py 删除 VERSION 常量，改从 .claude-plugin/plugin.json 读"
+      - "tests/test_repo_invariants.py 断言三方一致（CHANGELOG 取最新已发布小节，跳过 Unreleased）"
+
+  - id: KBP-011
+    title: 知识树审计的内容哈希对行尾脆弱
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P0
+    required: true
+    summary: >
+      实现 KBP-002 时发现的同类 bug：audit.content_tree_hash 用 path.read_bytes() 按原始
+      字节哈希。换机器或重新 checkout 导致的行尾变化会被判成"内容变了"，
+      发布路径以"内容哈希不一致，请重跑审计"拦住一次语义上毫无变化的提交。
+      与数开插件的引擎清单是同一个坑。
+    acceptance:
+      - 内容哈希对 CRLF/LF 免疫。
+      - 有专门用例断言同一内容两种行尾得到同一哈希。
+    depends_on: []
+    next_action: 已收口。注意升级影响：旧的审计记录第一次会被判不一致，重跑一次 /kb-audit 即可（已写进 CHANGELOG）。
+    evidence:
+      - "新增 context.sha256_file()（行尾先归一为 LF 再哈希）"
+      - "audit.content_tree_hash 改走它；generate_engine_manifest.py 也复用它"
+      - "tests/test_repo_invariants.py::test_hash_is_line_ending_agnostic"
+
+  - id: KBP-009
+    title: /kb-setup 报成功，但版本控制层可能是死的
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P1
+    required: true
+    summary: >
+      context.ensure_app_dir 末尾调 _git_init(repo)，而 _git_init 完全忽略 context.git()
+      的返回值。git 不存在时 git() 返回 {"ok": False, "error": "找不到 git 可执行文件"}，
+      被丢掉——/kb-setup 照样报成功，用户以为知识库已经版本化了。同类问题：能力缺失但
+      安装期不报。
+    acceptance:
+      - /kb-setup 结束时明确报告版本控制层状态；git 缺失时给可执行的修法。
+    depends_on: []
+    next_action: >
+      已收口。选了"明确告警但继续"：纯 mock 体验不需要 git，硬失败会挡掉只想试用的用户；
+      而发布路径本来就有 git_commit 门拦着。关键是这件事现在在**安装期**就可见了。
+    evidence:
+      - "context._git_init 返回 git 的真实结果；新增 context.vcs_status()（可用 / 配置关闭 / git 缺失三种状态）"
+      - "/kb-setup 的返回值带 vcs，实测：git 可用 -> {ok:true}；PATH 里没有 git -> {ok:false, reason:'找不到 git 可执行文件…'}"
+      - "commands/setup.md 要求把 vcs 结果原样告诉用户，而不是只说初始化完成"
+      - "VcsStatusTests 3 条"
+
+  - id: KBP-010
+    title: 测试反馈慢，且慢在一个可定位的点上
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P2
+    required: false
+    summary: >
+      38 个用例要 104 秒（现在 54 个要 108 秒）。分模块实测：test_engine 21 个 48.3 秒、
+      test_remote 12 个 32.4 秒、test_pipeline 5 个 27.2 秒。其中 test_engine 一个子进程
+      都不起却要 2.3 秒/用例。单点：ensure_app_dir 0.744 秒（内含 git init），
+      fetch_metadata 0.065 秒、latest_snapshot 0.077 秒——38 次 setUp ≈ 28 秒。
+    acceptance:
+      - 套件总时长明显下降，且不改变任何门控语义。
+    depends_on: []
+    next_action: >
+      已收口，但**用的不是原计划的方案**。原计划把 git 初始化从 ensure_app_dir 里拆出来，
+      那会动到发布链路的 git 行为；改成了更小的做法：提交身份由 git_commit 用 `-c` 传入，
+      不在仓库配置里写两次。效果比预期好得多，所以那个更大的重构不再必要。
+    evidence:
+      - "分模块实测：test_engine 48.3s / test_remote 32.4s / test_pipeline 27.2s"
+      - "单点计时：ensure_app_dir 0.744s（内含 git init），fetch_metadata 0.065s，latest_snapshot 0.077s"
+      - "改后单点实测：ensure_app_dir 0.098 / 0.107 / 0.102s —— 约 7 倍改善（去掉两次 git config 子进程）"
+      - "门控语义未变：全量 67 tests OK，git_commit / publish 行为不变"
+
+  - id: KBP-012
+    title: 跨插件同步不再静默丢失
+    status: completed
+    goal: goal#kb-pipeline
+    priority: P0
+    required: true
+    summary: >
+      两个 README 都写着"本插件是 data-development-plugin 的上游"，实现也在
+      （sync._update_data_dev_index 往 <consumer>/.data-dev/mock/kb/index.json 写新表文档），
+      但这条链一个测试都没有。补测试时发现真 bug：index.json 不存在时该函数返回
+      {"ok": False, ...}，而 publish 把返回值直接丢掉了——实测 publish 报 ok:true、
+      输出里一个字都没提 consumer、索引也没被创建。即"kb 先发布、ddp 后初始化"时
+      同步一行没做且无人知晓。
+    acceptance:
+      - publish 结果里可见消费方同步状态。
+      - 两侧各有对着同一份 schema 的契约测试。
+      - 真跨插件端到端验证一次。
+    depends_on: []
+    next_action: 已收口。
+    evidence:
+      - "sync.publish 返回值新增 consumer_sync（未配置消费方为 null，失败带 reason），并写 consumer-sync 到 hook 日志；不判失败不回滚（git/OV 确实成功了）"
+      - "commands/publish.md 写明前置条件（消费方索引必须已存在）与 ok:false 的处置"
+      - "tests/test_engine.py::ConsumerContractTests 4 条：形状 / 幂等 / 缺索引必须上报 / 未配置为 null"
+      - "真跨插件端到端（两侧各起进程、文件系统交接）：本插件发布后 ddp 搜到了 viking://resources/domains/user/tables/ads_user_act_di.md"
+      - "消费端对应断言在 data-development-plugin 的 tests/test_kb_contract.py"
+
+  - id: KBP-013
+    title: 采集只认平台 MCP，主流实时组件没有接入点
+    status: completed
+    goal: goal#realtime-sources
+    priority: P0
+    required: true
+    summary: >
+      snapshot.fetch_metadata 只有两条路：mock 读 .kb/mock/meta.json，live 调
+      config.cli.metadata 的 `snapshot --domain <d>`。也就是说"知识从哪来"是写死的，
+      只有平台元数据 MCP 这一种形态。Kafka / Pulsar / Flink / Doris / StarRocks /
+      ClickHouse 都没有那个 CLI，也没有任何地方声明它们的元数据怎么变成 6 类知识。
+      结果：插件的"兼容实时组件"只能靠使用者手写 mock/meta.json——那是编的，不是采的。
+    acceptance:
+      - 组件注册表成为唯一事实源：组件 id、角色、采集器、必备连接键、验证层级只写在一个文件里。
+      - 采集适配层把组件元数据翻译成 6 类知识契约，缺哪类要显式说明原因，不许沉默留空。
+      - 未实现的采集器必须在命令层明确报错，不许返回空壳冒充"采集成功"。
+    depends_on: []
+    next_action: 已收口。下一步：按同一契约接 ClickHouse / Pulsar / Flink 的采集器（KBP-016 起）。
+    evidence:
+      - "engine/sources/registry.json：6 个组件（Kafka / Doris / StarRocks / ClickHouse / Pulsar / Flink），每个登记角色、采集器、必备连接键、tier、六类覆盖与'不适用'理由"
+      - "engine/core/sources.py：contract_categories 从注册表取 6 类顺序（不再另抄一份）；registry_errors 做注册表自检；_empty_row 按契约类型建空行并写 NOT_APPLICABLE/COLLECT_FAILED"
+      - "未实现采集器的组件（tier 3）调用即报 collector_not_implemented，不返回空结果：tests/test_sources.py::RegistryTests::test_registered_without_collector_refuses_loudly"
+      - "缺连接键指名到键：RegistryTests::test_missing_connection_keys_are_named（missing=['bin','bootstrap_servers']）"
+      - "缺失来源硬门：RegistryTests::test_unregistered_component_is_refused（describe/probe/collect 三条路径都 gate=source_unregistered）"
+      - "全量 py -3 -m pytest tests -q → 80 passed（原 67 + 新增 13）"
+
+  - id: KBP-014
+    title: snapshot 的 source 是写死的，未登记来源也能混进来
+    status: completed
+    goal: goal#realtime-sources
+    priority: P0
+    required: true
+    summary: >
+      fetch_metadata 里 snapshot["source"] 硬编码为 "platform-mcp"，与真实来源无关；
+      下游（漂移比对、发布留证、审计）都把这个字段当事实读。若接入别的来源而不改这里，
+      知识库会一边记着"来自平台 MCP"、一边其实采自别处——留证撒谎比没有留证更糟。
+    acceptance:
+      - snapshot 的 source 由提供方决定，调用方可指定 `--source oss:<组件id>`。
+      - 未在注册表登记的来源直接硬门拦下（gate=source_unregistered），不产生快照文件。
+      - 来源是 mock 时不伪装成 live 来源，字段如实反映。
+    depends_on: [KBP-013]
+    next_action: 已收口。
+    evidence:
+      - "snapshot.resolve_source：显式参数 > .kb/config.json 的 snapshot.source > 按 mode 兜底（live→platform-mcp，其余→mock）"
+      - "snapshot.fetch_metadata 新增 source / runner 两个入参；oss:<组件id> 走采集层并把 source 如实写进快照"
+      - "未登记来源拦下且不落盘：tests/test_sources.py::SourceGateTests::test_unknown_source_is_blocked_without_writing_a_snapshot（断言快照目录仍为空）"
+      - "修掉留证撒谎：mock 模式的快照原先也写 source=platform-mcp，现在写 mock —— test_mock_snapshot_does_not_disguise_itself_as_platform"
+      - "来源可来自配置：test_snapshot_source_can_come_from_config"
+
+  - id: KBP-015
+    title: 采集器：Kafka（消息 / 日志存储）
+    status: completed
+    goal: goal#realtime-sources
+    priority: P0
+    required: true
+    summary: >
+      Kafka 是实时栈里最靠前的一环，也是"表"这个概念最弱的一环：它没有 DDL、没有调度、
+      没有分区字段。所以它的价值不只是"能采"，而是**能不能诚实地说出哪几类知识不适用**——
+      把 NOT_APPLICABLE 与"采失败了"分开，是这条采集层可信的前提。
+    acceptance:
+      - topic 列表、分区数、副本因子、保留策略、负责人/描述等能落到 BASIC_INFO/PARTITION_INFO/QUALITY_RULE。
+      - 不适用于消息组件的类别写 NOT_APPLICABLE 并给理由，不写空对象。
+      - 外部命令可注入（测试用桩，不依赖真 Kafka）。
+    depends_on: [KBP-013]
+    next_action: 已收口。已知边界：属主与消息 schema 不在 broker（前者记 unknown，后者标不适用）。
+    evidence:
+      - "kafka-topics.sh --describe 解析主题/分区数/副本因子/分区明细；kafka-configs.sh --describe 解析主题级配置"
+      - "映射结果：BASIC_INFO（domain/layer/frequency/partitions/replication_factor）、QUALITY_RULE（retention_ms / cleanup_policy / min_insync_replicas）、PARTITION_INFO（key-hash 切分 + 保留天数）"
+      - "不适用三类（COLUMN_BASIC_INFO / DDL_SQL / SCHEDULE_TASK）写进 NOT_APPLICABLE 并带理由，值按契约类型留空：tests/test_sources.py::KafkaCollectorTests::test_not_applicable_is_stated_not_faked"
+      - "空主题列表不算成功：KafkaCollectorTests::test_empty_topic_list_is_not_a_success（gate=source_collect_empty）"
+      - "采集失败带原始原因：KafkaCollectorTests::test_collect_failure_carries_the_raw_reason（reason 内含 Connection refused）"
+      - "桩全部注入，不依赖本机装了 Kafka：kafka_runner 返回预置 stdout"
+
+  - id: KBP-017
+    title: 本地实验环境：组件探活与起停配方
+    status: completed
+    goal: goal#realtime-sources
+    priority: P0
+    required: true
+    summary: >
+      用户明确要求"可以在本地安装对应的组件，测试的时候启动对应的组件即可"。
+      没有这条，KBP-015/016 的采集器就只能靠桩数据自证；有这条，采集器才可能对真组件负责。
+      连接信息（安装根、地址、客户端路径）必须来自项目级 .kb/config.json，不写死在包里。
+    acceptance:
+      - 注册表声明每个组件的探测方式（tcp / http / 客户端命令），KBP-017 提供 `sources check` 体检。
+      - 未就绪时报缺口并指出下一步（装/起哪个），不猜、不自动装。
+      - 接入记录写明本机装了什么、装在哪、怎么起停（可照抄复现）。
+    depends_on: [KBP-013]
+    next_action: 已收口。探活方式选"问组件本身"（kafka-topics --list），不是只看端口。
+    evidence:
+      - "注册表 probe 支持 tcp / http / cmd 三种；cmd 型经同一个 runner 执行，保证'探得到'与'采得到'是同一件事"
+      - "踩到的坑：Kafka 在 WSL 里，Windows 侧探 127.0.0.1:9092 被拒（WinError 10061）——只探端口会误判'组件没起'。改成经 runner 执行 kafka-topics.sh --list 后 rc=0，stdout 列出 7 个主题"
+      - "未就绪时 sources check 非零退出并给 hint（先按 docs/realtime-sources.md 的配方起组件）"
+      - "连接信息全部来自项目级 .kb/config.json 的 sources.<组件id>：包内零主机名、零安装路径（registry.json 只有占位符 ${bin}/${bootstrap_servers}）"
+      - "起停与造数配方：docs/realtime-sources.md 第五节 + .tmp/live-source/kafka_up.sh（本次取证用的就是它）"
+
+  - id: KBP-018
+    title: 真跑取证：起组件 → 采集 → 进 snapshot
+    status: completed
+    goal: goal#realtime-sources
+    priority: P0
+    required: true
+    summary: >
+      "兼容"这个词只有在真组件上跑过一次才算数。本项要的不是再写一个单测，而是：
+      在本机把一个实时组件起起来，对它做一次真实采集，让产物落成 metadata-snapshot-*.json，
+      并把原始输出留证。没跑成的那部分如实写"未验证"，不用推理填空。
+    acceptance:
+      - 至少一个组件在本机真起、真采，快照里的 source 指向该组件而不是 platform-mcp。
+      - 原始命令与输出留证可复核。
+      - 采不到的类别如实标注，不推断补齐。
+    depends_on: [KBP-014, KBP-015, KBP-017]
+    next_action: 已收口。
+    evidence:
+      - "环境：WSL2 Debian 13 + OpenJDK 21.0.10 + Kafka 4.1.2 单机 KRaft（~/oss/kafka_2.13-4.1.2），本次真起 broker"
+      - "造数：kb_smoke_orders（3 分区，retention.ms=604800000，min.insync.replicas=2）+ kb_smoke_clicks（1 分区，cleanup.policy=compact）"
+      - "sources check --component oss_kafka → rc=0，stdout 列出 __consumer_offsets/kb_smoke_clicks/kb_smoke_orders/… 共 7 个主题"
+      - "snapshot fetch --domain stream --source oss:oss_kafka → metadata-snapshot-2026-10-07T042926Z.json，source=oss:oss_kafka，tables=7"
+      - "kb_smoke_orders 落到契约：分区=3、副本=1、retention_days=7.0、QUALITY_RULE=[retention_ms=604800000, min_insync_replicas=2]、NOT_APPLICABLE 三类带理由、COLLECT_FAILED 为空"
+      - "原始输出与完整快照行抄在 docs/realtime-sources.md 第六节"
+      - "采不到的如实标注：没有显式 retention.ms 的主题报 None（不替它算 broker 默认值）；属主记 unknown"
+
+  - id: KBP-016
+    title: 采集器：SQL 服务层（Doris / StarRocks / ClickHouse）
+    status: completed
+    goal: goal#realtime-sources
+    priority: P1
+    required: false
+    summary: >
+      服务层的"表"最接近平台数仓里的表：有库表、有字段类型与注释、有分区、有副本/引擎设置。
+      与 Kafka 相反，这里几乎 6 类知识都能采到实体，缺的通常是"调度"与"质量规则"
+      （它们不在组件里，在上游任务系统里）——同样要如实标注不适用，而不是编。
+    acceptance:
+      - 至少一个服务层组件的库表/字段/分区能落进 6 类契约。
+      - 调度与质量规则缺失时标注来源不在组件内，不伪造。
+    depends_on: [KBP-013, KBP-014]
+    next_action: >
+      已收口：StarRocks 真跑通过并升到 tier 1。Doris 保持 tier 2（未验证）——容器路线有已记录的
+      内存卡点（FE 默认 8GB 堆 + BE 要求关 swap，本机 7.8GB 内存跑不动），不在本项里假装跑过；
+      ClickHouse 仍无采集器（tier 3），属后续项。
+    evidence:
+      - "环境：WSL2 Debian 13 + Docker 26.1.5 + StarRocks 3.3.9（FE/BE 各一容器，用本机已有镜像；编排复用 realtime-data-plugin 的 serving_cluster_up.sh）"
+      - "建库建表（DUPLICATE KEY + RANGE 分区）写 3 行读回 3 行；sources check 走 mysql 客户端 SELECT 1，rc=0"
+      - "真实采集：字段 6 个（含中文注释）、DDL 639 字符 / 18 行、不适用 [QUALITY_RULE, SCHEDULE_TASK]、未采到 []"
+      - "四件事是真跑才暴露的，全部已修：① 内部库过滤按组件走（StarRocks 多一个 _statistics_，首次采到 9 张表里 8 张是内部表）；② 子进程输出必须显式 utf-8（Windows 默认 GBK 解码中文注释抛 UnicodeDecodeError，字段表与 DDL 直接变空）；③ SQL 改走 stdin（反引号在 wsl.exe → bash -lc 这一层被吃掉，SHOW CREATE TABLE 变成 SHOW CREATE TABLE .）；④ DDL 是多行（--raw 下真换行，只取首行会截断）"
+      - "注册表 oss_starrocks：tier 2 → 1，verified 写入能力与四条 gaps；oss_doris 保持 tier 2 + verified=null"
+      - "用例：MysqlCollectorTests 8 条（含多行 DDL 不截断、内部库过滤按组件走）"
+
+  - id: KBP-019
+    title: 反哺：组件侧元数据漂移也要能被发现
+    status: completed
+    goal: goal#realtime-sources
+    priority: P1
+    required: false
+    summary: >
+      现在的反哺（snapshot.diff_snapshots → refresh-drift）只比 6 类里的
+      BASIC_INFO 与 COLUMN_BASIC_INFO，且默认两次快照都来自同一个平台。
+      接了实时组件之后，同一个组件前后两次采集的漂移（topic 分区数改了、
+      表加了字段）应当走同一条反哺链路，而不是另起一套。
+    acceptance:
+      - 组件来源的快照之间能做 drift 比对，产出与平台来源同形状的报告。
+      - 漂移报告里能看出是哪一类知识变了。
+    depends_on: [KBP-016]
+    next_action: >
+      已收口。剩下的是操作纪律不是代码：组件侧注释类改动有传播延迟，改完立刻采集会读到旧值，
+      反哺要留重采窗口——已写进注册表 gaps 与 docs/realtime-sources.md。
+    evidence:
+      - "同一组件两次采集之间的漂移走原有 refresh 链路，没有另起一套：把 snapshot.source 配成 oss:oss_starrocks 后，refresh 自动用同一来源取新快照"
+      - "加字段立刻可见：ALTER TABLE ADD COLUMN pay_amount → refresh 检出 COLUMN_BASIC_INFO.pay_amount: null -> added，rewritten=[orders_by_minute]"
+      - "改注释有延迟（实测）：ALTER MODIFY COLUMN COMMENT 后立刻反哺检不到，等 45 秒再反哺才检出 COLUMN_BASIC_INFO.status.comment: '订单状态' -> '订单状态（终态）'"
+      - "假漂移修掉：information_schema.TABLES.TABLE_ROWS 在 3 与 0 之间抖，原先每次反哺都报 BASIC_INFO.row_count 变化；现在 row_count 明确不参与漂移判定（engine/core/snapshot.py 的 VOLATILE_BASIC_FIELDS），文档里照常展示"
+      - "用例：tests/test_sources.py::VolatileFieldTests 2 条（row_count 不算漂移 / 真正的身份变化仍然算）"
+
+  - id: KBP-020
+    title: 文档与术语：实时组件知识源
+    status: completed
+    goal: goal#realtime-sources
+    priority: P2
+    required: false
+    summary: >
+      术语表里没有"知识源""采集器""组件注册表"这几个词，README 的七环节表也只写
+      "MCP 6 类元数据"。新能力进来后，第一眼读文档的人会以为这插件只认平台 MCP。
+    acceptance:
+      - docs/glossary.md 补知识源/采集器/注册表三个词。
+      - README 与 ARCHITECTURE 的采集一节写清"平台 MCP 与实时组件两条路"。
+    depends_on: [KBP-018]
+    next_action: 已收口。口径修正：本仓库没有 docs/glossary.md（有术语表的是数开插件），术语写在新文档第三节。
+    evidence:
+      - "新增 docs/realtime-sources.md：三条纪律 / 注册表现状表 / 术语 / 怎么用 / 本地实验环境 / 真跑记录 / 边界"
+      - "README：七环节表'采集'行改成三条路（mock / 平台 MCP / 实时组件直采），目录结构补 engine/sources/registry.json 与 docs/realtime-sources.md，末尾补链接"
+      - "docs/ARCHITECTURE.md 第 3 节：采集契约补来源表（mock / platform-mcp / oss:<组件id>）、附注字段与未登记来源的处置"
+      - "CHANGELOG [Unreleased] 新增 Added 小节，含真跑取证结论"
+      - "口径修正：acceptance 原写'docs/glossary.md 补三个词'，但本仓库没有 glossary.md（已有术语表的是 realtime-data-plugin）——不改写成不存在的东西，术语落在 docs/realtime-sources.md 第三节"
+
+  - id: KBP-021
+    title: 详细测试：采集层的边角与命令层接口
+    status: completed
+    goal: goal#sources-hardening
+    priority: P0
+    required: true
+    summary: >
+      上一轮的 13 个用例只盖住 Kafka 的顺路和几条门：服务层采集器（mysql_sql）一行测试都没有，
+      探活的三种探法、runner 前缀拼接、CLI 的退出码与门控键、快照来源落盘都没被钉住。
+      "能跑通一次"和"改坏了会被发现"之间差的就是这些反例。
+    acceptance:
+      - 服务层采集器有正例也有反例（含"分区查询失败 ≠ 没有分区"）。
+      - 三种探法与 runner 前缀拼接有测试。
+      - 命令层（list/check/collect/snapshot fetch）的退出码与门控键被钉住。
+    depends_on: []
+    next_action: 已收口。
+    evidence:
+      - "tests/test_sources.py 从 13 个用例加到 28 个：MysqlCollectorTests 5、ProbeTests 4、SourcesCliTests 4、ComponentSourcedPipelineTests 2、原有 13"
+      - "服务层反例：分区查询 rc=1 时写 COLLECT_FAILED['PARTITION_INFO'] 且 PARTITION_INFO 保持 {}（test_partition_query_failure_is_reported_not_treated_as_absent）"
+      - "DDL 上限与开关都要可见：max_ddl_tables=1 的第二张表、with_ddl=false 的表，都在 COLLECT_FAILED 里写明原因（test_ddl_cap_and_switch_are_visible_in_the_row）"
+      - "密码恰好传一次且挂在 -u 之后：test_password_is_passed_to_the_client_exactly_once"
+      - "探活：真开一个本机监听端口验通、关掉再验断；http 探不可达地址必须 fail-closed；cmd 探发的是 kafka-topics.sh（问组件本身而不是问端口）"
+      - "runner 前缀把命令行拼成单个参数：mock subprocess.run 后断言 argv 长度为 7（前缀 6 段 + 命令 1 段），末位是把各参数按 shell 规则转义后拼成的一个字符串"
+      - "命令层：list 的 problems=[]；未实现采集器 rc=3 gate=collector_not_implemented；未登记来源 rc=3 gate=source_unregistered 且快照目录仍为空；缺连接键 rc=3 且 missing=['bin','bootstrap_servers']"
+      - "顺带修一处沉默：with_ddl=false 原先让 DDL_SQL 静默为空，现在写进 COLLECT_FAILED 并有用例钉住"
+
+  - id: KBP-022
+    title: 真链路：真组件 → 快照 → 生成 → 严格审计
+    status: completed
+    goal: goal#sources-hardening
+    priority: P0
+    required: true
+    summary: >
+      单测证明不了"组件来源的快照能带着空类别与 NOT_APPLICABLE 走完后半程"。
+      组件来源的行天生有空洞（消息组件没有字段、没有 DDL、没有调度），后半程的
+      render / audit 从没吃过这种形状的输入。
+    acceptance:
+      - 真组件起得来、采得到，快照 source 指向该组件。
+      - 该快照能生成表文档并通过严格 + 发布模式审计。
+      - 原始输出留证。
+    depends_on: [KBP-021]
+    next_action: 已收口。
+    evidence:
+      - "环境：WSL2 Debian 13 + Kafka 4.1.2 单机 KRaft（本次真起 broker）"
+      - "sources check --component oss_kafka → rc=0，stdout 列出 7 个主题"
+      - "snapshot fetch --domain stream --source oss:oss_kafka → metadata-snapshot-2026-10-07T054652Z.json，source=oss:oss_kafka，tables=7"
+      - "skeleton set → generate --domain stream 写出 7 份表文档（含历史实验遗留主题）"
+      - "audit --domain stream --mode publish --level strict → rc=0、passed=True、issues=[]；六层链接 L1 scanned=1 / L2 scanned=2 / L3 scanned=2 全部 broken=[]"
+      - "生成的 kb_smoke_orders.md 身份段来自 broker 回读：3 分区 / 副本 1 / 保留 7.0 天 + '属主在平台目录里，broker 内没有'"
+      - "测完已停 Kafka（9092 不再监听），本机不留常驻进程"
+
+  - id: KBP-023
+    title: 跨插件组件登记漂移核对
+    status: completed
+    goal: goal#sources-hardening
+    priority: P1
+    required: false
+    summary: >
+      组件现在登记在两处：本插件的 engine/sources/registry.json 与 realtime-data-plugin 的
+      governance/oss-components.json。两边都写"有哪些组件、什么角色"，正是最容易悄悄漂移的形状。
+    acceptance:
+      - 两份登记逐个比对并出结论：有没有矛盾、漂移在哪。
+    depends_on: []
+    next_action: >
+      已收口。结论：共有组件角色全一致，无矛盾；漂移风险是"只在 RTD 的 7 个组件"要不要跟进
+      （属 KBP-016 之后的候选，不另开项）。
+    evidence:
+      - "KB 登记 6 个（kafka/doris/starrocks/clickhouse/pulsar/flink）；RTD 登记 13 个"
+      - "共有 6 个组件的 role 逐个一致：clickhouse/doris/starrocks=serving，flink=compute，kafka/pulsar=log"
+      - "只在 RTD 的 7 个：debezium / delta / fluss / hudi / iceberg / paimon / spark —— KB 未登记，属候选而非冲突"
+      - "tier 口径不同且已写明：KB 按'知识采集能不能做'分层，RTD 按'本机跑没跑过'分层，因此不做数值比对"
+      - "核对脚本：.tmp/live-source/drift_check.py（一次性报告，不入库）"
+
+  - id: KBP-024
+    title: 回归与生成物同步
+    status: completed
+    goal: goal#sources-hardening
+    priority: P0
+    required: true
+    summary: >
+      引擎文件一改，engine/.engine-manifest.json 与 Codex 面生成物就得跟着动；
+      漏一处就是"门在自检里以为自己没被改过"。
+    acceptance:
+      - 全量用例通过，且把用例数与上一轮对比说明。
+      - 引擎清单与生成面同步后不变量测试仍绿。
+    depends_on: [KBP-021]
+    next_action: 已收口。
+    evidence:
+      - "py -3 -m pytest tests -q → 95 passed（上一轮 80，本轮 +15）"
+      - "py -3 tools/generate_engine_manifest.py → manifest written: 17 files（新增 engine/core/sources.py 与 engine/sources/registry.json 后重算）"
+      - "codex 面生成器重跑后与仓库逐字节一致（test_generated_surface 绿）"
+      - "不变量测试（版本/署名/Python 下限/引擎清单/工具输出编码）全绿"
+
+  - id: KBP-025
+    title: 推送远端并核对一致性
+    status: completed
+    goal: goal#sources-hardening
+    priority: P0
+    required: true
+    summary: 用户 2026-10-07 指示"push"；AWR 的完成校验按提交 SHA 绑定，不推等于别人拿不到这份证据。
+    acceptance:
+      - 远端有本次提交，main 与 origin/main 同步。
+    depends_on: []
+    next_action: 已收口。
+    evidence:
+      - "先 fetch 确认无新提交（origin/main...main 为 0/1），再 push：e135b43..c7846f9"
+      - "推送后 git status -sb 显示 ## main...origin/main（无 ahead/behind）"
+
+  - id: KBP-026
+    title: 采集附注还没进生成的表文档
+    status: completed
+    goal: goal#sources-hardening
+    priority: P1
+    required: false
+    summary: >
+      NOT_APPLICABLE / COLLECT_FAILED 现在只活在快照 JSON 里。生成出来的表文档
+      第 3 节（字段语义）与第 5 节（SQL 约束）在消息组件上是空的，读者看不到
+      "这一类知识为什么没有"——诚实标注的价值一半在写下来，另一半在让人看到。
+    acceptance:
+      - 表文档里能看到本行的采集附注（不适用 / 采失败各带理由）。
+      - 空类别不再以沉默呈现，且不破坏既有的 9 章节结构与不变量测试。
+    depends_on: [KBP-022]
+    next_action: 已收口。
+    evidence:
+      - "engine/core/render.py：_collection_note_block 把行上的 NOT_APPLICABLE / COLLECT_FAILED 逐条渲染成「类别：不适用/未采到 —— 理由」，挂在第 1 节末尾"
+      - "表文档结构没动：仍是原 9 章节，missing_sections 判定不受影响，用例里断言过"
+      - "普通 mock 行不出现采集说明（该块只在有附注时生成）"
+      - "真组件验证：StarRocks 生成的 orders_by_minute.md 出现两条「不适用」说明（质量规则/调度不在组件内）"
+      - "用例：tests/test_sources.py::ComponentSourcedPipelineTests 新增 2 条（附注进文档 / 普通行不出现）"
+
+  - id: KBP-027
+    title: 法律与许可：MIT → Apache-2.0，并补齐 NOTICE 与逐文件许可头
+    status: completed
+    goal: goal#apache-readiness
+    priority: P0
+    required: true
+    summary: >
+      现状：LICENSE 是 MIT（1074 字节），没有 NOTICE，源码文件没有许可头，
+      CONTRIBUTING 的 License 段写"MIT — see LICENSE"。而相邻两个插件（data-development-plugin、
+      realtime-data-plugin）都已经是 Apache-2.0 + NOTICE。三件套口径不一致，陌生人第一眼就会问"到底哪个是准的"。
+      Apache-2.0 相比 MIT 多了明示的专利授权与声明义务，代价是要维护 NOTICE 与许可头。
+    acceptance:
+      - LICENSE 是 Apache-2.0 官方全文；NOTICE 写明项目名、版权年、许可与第三方/商标边界。
+      - 两份 plugin.json 的 license 字段与 LICENSE 一致；CONTRIBUTING 的 License 段落同步。
+      - 自研源文件（engine/ hooks/ tools/ tests/）逐个带许可头，且机器检查会拦缺头。
+      - 不变量测试改为按新口径核对（署名与清单一致），不再依赖 MIT 的 Copyright 行。
+    depends_on: []
+    next_action: >
+      已收口。口径提醒：Apache-2.0 的官方正文里没有项目署名，署名与版权年统一以 NOTICE 为准
+      （ASF 项目通行做法）。换许可是法律状态变更，回滚点六处写在审计报告第七节。
+    evidence:
+      - "LICENSE 换成 Apache-2.0 官方全文（11358 字节），与 realtime-data-plugin 的 LICENSE sha256 逐字节一致"
+      - "新增 NOTICE：项目名 / Copyright 2026 AI实战技能圈 / 许可 / 第三方边界 / 商标声明"
+      - "30 个自研源文件（engine 13 / hooks 4 / tools 5 / tests 8）加逐文件 Apache-2.0 头；模块 docstring 仍是第一条语句（注释不算语句，行为未变）"
+      - "两份 plugin.json 的 license 字段 = Apache-2.0；顺带修掉一处漂移：生成器原先硬编码 author/license，现在与版本号一样从 Claude 清单一处读"
+      - "CONTRIBUTING.md 的 License 段改成 Apache-2.0 + DCO（git commit -s）"
+      - "tests/test_repo_invariants.py 的署名断言改为读 NOTICE 并同时断言 license 字段（原断言依赖 MIT 的 Copyright 行）"
+      - "机器检查：tools/validate_oss.py 第 2、3、4 项；反例用例 tests/test_oss_readiness.py::test_license_headers_are_checked_for_new_files"
+
+  - id: KBP-028
+    title: 治理与流程：没有 GOVERNANCE / CODE_OF_CONDUCT / 发版清单
+    status: completed
+    goal: goal#apache-readiness
+    priority: P0
+    required: true
+    summary: >
+      一个正经开源项目要能回答"谁能合并、谁能发版、出事怎么升级"。现在这三个问题在本仓库没有书面答案：
+      没有 GOVERNANCE.md、没有 CODE_OF_CONDUCT.md、没有发版流程（只有 CHANGELOG）。
+      反面要求同样重要：不写"看起来合规但没人会照做"的摆设文件——每条规则都要是能落地的动作。
+    acceptance:
+      - GOVERNANCE.md 回答：角色、惰性共识、需要更强共识的事项、争议升级路径、弃用流程。
+      - CODE_OF_CONDUCT.md 可用（贡献者公约 + 执行方式，联系入口真实存在）。
+      - 发版清单可照抄执行（改哪些文件、跑哪些检查、怎么打 tag、怎么回滚）。
+    depends_on: []
+    next_action: 已收口。GitHub 侧还有两件只能在网页后台做的事（开 Private vulnerability reporting、按需开分支保护），写在审计报告第七节。
+    evidence:
+      - "GOVERNANCE.md：角色（Owner/Maintainer/Contributor）、惰性共识 3 个自然日、四类需要更强共识的事项、争议升级（裁定理由写回 issue）、弃用流程（标注+替代路径+保留一个次要版本）"
+      - "GOVERNANCE.md 末节写清治理与机器门控的关系：治理决定要不要改门，不决定这次能不能绕门"
+      - "CODE_OF_CONDUCT.md：参考 Contributor Covenant v2.1 改写，报告渠道是真实存在的入口（issue 或 GitHub 私密报告），给出 7 天初次回应"
+      - "SUPPORT.md：按问题给文档索引、提问要带的四样、支持与非支持范围、响应预期"
+      - "docs/release-process.md：6 步可照抄（定版本 → 重生成产物 → 本地四项验收 → 打 tag → 外部视角核对 → 回滚），并写明每步漏做会红在哪"
+
+  - id: KBP-029
+    title: 贡献入口与安全：没有 issue/PR 模板，SECURITY 写的是"私有仓库"路径
+    status: completed
+    goal: goal#apache-readiness
+    priority: P0
+    required: true
+    summary: >
+      .github/ 下只有 ci.yml：没有 issue 模板、没有 PR 模板、没有 CODEOWNERS，
+      新人提问只能写一段自由文本，维护者每次都要追问同样几件事。
+      更硬的一条：SECURITY.md 现在写"这批仓库目前是私有的"，给的是私有仓库的报告路径；
+      仓库一旦公开，那段指引就指向一个不存在的入口（这个文件历史上已经因为"指向不存在的东西"被改过两次）。
+    acceptance:
+      - 三个 issue 模板（bug / feature / 配置求助）问的是真需要的信息，并带 config.yml 关掉空白 issue。
+      - PR 模板要求写清"改了什么、怎么验证的、有没有动机器资产"。
+      - SECURITY.md 同时覆盖私有期与公开期，公开期指向 GitHub Private vulnerability reporting。
+      - CODEOWNERS 指向真实可用的账号。
+    depends_on: []
+    next_action: 已收口。
+    evidence:
+      - ".github/ISSUE_TEMPLATE/{bug,feature,config-help}.md：bug 要 gate 键与完整输出，config 列出三支自检命令，feature 问『不做会发生什么』以判优先级"
+      - ".github/ISSUE_TEMPLATE/config.yml：关掉空白 issue，并给两条 contact_link（文档地图、私密安全报告）"
+      - ".github/PULL_REQUEST_TEMPLATE.md：改了什么 / 怎么验证的 / 六项检查清单（含重算清单、重生成面、CHANGELOG、许可头、不夹带密钥与路径）"
+      - ".github/CODEOWNERS：* @MrSuiChuan"
+      - "SECURITY.md 重写报告一节：公开期走 GitHub Private vulnerability reporting（并注明需要先在 Settings → Security 打开），私有期走 issue 或联系维护者；保留『这段被改坏过两次』的维护者须知"
+      - "SECURITY.md 新增响应时点表：初次回应 7 天 / 初步判定 14 天 / 修复按严重度排期"
+
+  - id: KBP-030
+    title: 友好性：文档没有索引，术语没有解释，新人不知道从哪读
+    status: completed
+    goal: goal#apache-readiness
+    priority: P0
+    required: true
+    summary: >
+      docs/ 下现在有四份文档（ARCHITECTURE / REPRODUCTION-NOTES / realtime-sources / 待加的审计报告），
+      但没有入口告诉新人"遇到什么问题读哪份"。术语层面，本仓库的核心词——口径、六层链接、
+      机器资产、留证——读者要自己从正文里悟。README 也没有"参与与支持"一节。
+    acceptance:
+      - docs/README.md 是文档地图：每个问题对应一份文档，链接都可达。
+      - docs/glossary.md 解释核心术语，且与正文口径一致。
+      - README 补"参与与支持"（怎么提问、怎么贡献、去哪儿报告问题），README.en.md 对齐。
+    depends_on: []
+    next_action: 已收口。英文版治理类文档（GOVERNANCE/CODE_OF_CONDUCT/SUPPORT）目前只有中文，README.en.md 已给出索引；要不要出英文版是所有者决定。
+    evidence:
+      - "docs/README.md：三张表（第一次接触 / 按环节读 / 想参与想发版）+ 『三份过程记录』一节，明确哪些是教程、哪些是证据"
+      - "docs/glossary.md：14 个本仓库特定含义的词（六类知识/快照/知识源/采集器/注册表/NOT_APPLICABLE/口径/六层链接/机器资产/留证/硬门/提案/反哺/易变字段）+ 4 条常见误解"
+      - "README.md 新增『参与与支持』：问题→SUPPORT、改代码→CONTRIBUTING、治理→GOVERNANCE、发版→release-process、安全→SECURITY、第三方→third-party-dependencies、验收→审计报告"
+      - "README.md 的 License 段改为 Apache-2.0（见 LICENSE 与 NOTICE）；README.en.md 补文档索引与 License 段"
+
+  - id: KBP-031
+    title: 第三方与商标边界没写清
+    status: completed
+    goal: goal#apache-readiness
+    priority: P1
+    required: false
+    summary: >
+      本仓库运行时只用 Python 标准库、不分发任何第三方二进制，但文档里大量出现
+      Apache Kafka / StarRocks / Doris 等名称（本地实验环境）。开源后读者会问两件事：
+      仓库里有没有第三方代码？这些名字是不是表示关联或背书？现在没有书面答案。
+    acceptance:
+      - docs/third-party-dependencies.md 划清"本仓库包含什么、运行时依赖什么、测试时在谁的机器上跑什么"。
+      - NOTICE 里的商标声明与之一致：出现第三方名称只用于说明兼容对象与实测事实，不表示赞助或背书。
+    depends_on: [KBP-027]
+    next_action: 已收口。
+    evidence:
+      - "docs/third-party-dependencies.md 五节：仓库内包含什么（无第三方源码/二进制、只用标准库）/ 测试时在使用者机器上跑什么（平台 MCP、OpenViking、实时组件、单测桩）/ 许可归属 / 商标 / 发现遗漏怎么办"
+      - "实测依据：本仓库 CI 只做文本级密钥样式扫描；运行时依赖由『只用标准库』的纪律约束，新增 import 会在评审时被问"
+      - "NOTICE 的第三方说明与商标声明与该文件口径一致（都强调：仅说明兼容对象与实测事实，不表示赞助或背书）"
+
+  - id: KBP-032
+    title: 脱敏与个人路径：文档里留着维护者的本机路径
+    status: completed
+    goal: goal#apache-readiness
+    priority: P0
+    required: true
+    summary: >
+      实测抓到 docs/realtime-sources.md 里有维护者本机的绝对路径（`/home/<用户名>/oss/...`）——
+      本机用户名直接进了对外文档。历史也扫过（14 个提交，无字面密钥），
+      但"没有密钥"不等于"可以发布"：路径、用户名、内网地址这类信息同样要清。
+    acceptance:
+      - 跟踪文件里没有个人路径/用户名；示例统一用占位符。
+      - 全历史扫描记录在案（扫什么、结论是什么），不是"我觉得应该没事"。
+      - CI 的脱敏扫描补上个人路径这一类，防回归。
+    depends_on: []
+    next_action: 已收口。
+    evidence:
+      - "实测抓到 docs/realtime-sources.md 里有维护者本机的绝对路径（真跑取证时写进去的）→ 换成占位符 /opt/kafka/bin；台账里描述该问题的同一处也一并改成占位符"
+      - "全历史扫描（14 个提交、patch 级）：只命中一处形如 <字段名> = str(settings[...]) 的赋值语句——那是从环境变量或密钥文件读取，不是硬编码值；扫描用的是正则，不是熵检测，边界写在审计报告第七节"
+      - "个人路径纳入机器检查：tools/validate_oss.py 第 5 项（Windows 绝对路径 / POSIX /home/<user>/ / 维护者用户名），豁免清单只含自检脚本与审计报告（它们要『描述』这些模式）"
+      - "反例用例 tests/test_oss_readiness.py::test_personal_path_is_reported 证明该检查会真报"
+
+  - id: KBP-033
+    title: 开源标准要能机器检查，否则下次改回去没人知道
+    status: completed
+    goal: goal#apache-readiness
+    priority: P1
+    required: true
+    summary: >
+      这一轮加的标准文件与许可头，如果没有检查，下一次改动就会悄悄退回去
+      （本仓库上一轮已经吃过一次同类教训：生成物漂移与许可头缺失都是"没人看见"才存在的）。
+    acceptance:
+      - 标准文件齐全、许可头齐全、清单字段与 LICENSE 一致，都有可执行的检查。
+      - 检查在 CI 里真跑；失败时给出的信息能指出缺什么、去哪儿补。
+    depends_on: [KBP-027, KBP-028, KBP-029, KBP-030, KBP-031, KBP-032]
+    next_action: 已收口。
+    evidence:
+      - "tools/validate_oss.py：5 项检查（文件齐全 / LICENSE 与 NOTICE / 清单字段与署名一致 / 自研源码许可头 / 无个人路径与用户名），失败时逐条写『缺什么、去哪儿补』"
+      - "实测：这道检查在落地过程中当场抓到两处真问题——.codex-plugin 清单的 license 仍是 MIT（生成器硬编码所致）、测试文件里的反例样本自己被当成个人路径；两处都已修"
+      - "挂进 CI：.github/workflows/ci.yml 的 test job 新增 python tools/validate_oss.py"
+      - "挂进用例：tests/test_oss_readiness.py（1 正例 + 3 反例：缺文件 / 缺许可头 / 混进本机路径）"
+      - "端到端复核：py -3 tools/validate_oss.py → 5 项全 OK、0 处问题；py -3 -m pytest tests -q → 106 passed"
+
+  - id: KBP-034
+    title: 验收报告：四维度逐条判定，未完成的如实留白
+    status: completed
+    goal: goal#apache-readiness
+    priority: P1
+    required: true
+    summary: >
+      开源就绪是个判断，判断要能复核。需要一份按 Apache 标准四个维度组织的审计报告：
+      每条给结论与证据，未达标或需要所有者决策的单独列出，不含"应该没问题"这种话。
+    acceptance:
+      - 报告按 A 法律与许可 / B 流程完整性 / C 合理性 / D 友好性 四维组织，逐条给结论。
+      - 需要所有者决策的项单独列出（例如许可从 MIT 换成 Apache-2.0 是法律状态变更）。
+      - 报告里的编号与文件路径可复核。
+    depends_on: [KBP-033]
+    next_action: >
+      已收口。报告里第七节单独留了『需要所有者决策 / 未完成』：许可变更的拍板与回滚点、
+      只能在 GitHub 后台做的三件事、全历史扫描的方法与边界、英文版治理文档未做。
+    evidence:
+      - "docs/apache-readiness-audit.md：四维度逐条（A 法律与许可 8 条 / B 流程完整性 10 条 / C 合理性 6 条 / D 友好性 5 条），每条给结论与依据"
+      - "第一节总览给出四个维度的结论与需要拍板的一件事；第六节列出本轮全部落地改动；第七节如实留白；第八节给出复核命令"
+      - "已在 docs/README.md 与 README.md、README.en.md 里挂了入口，不是只躺在 docs 目录里"
+
+  - id: KBP-035
+    title: 采集器：ClickHouse
+    status: completed
+    goal: goal#v130
+    priority: P0
+    required: true
+    summary: >
+      采集层缺的三家（ClickHouse / Pulsar / Flink）里，先补最像"表"的一家。
+      ClickHouse 与 Doris/StarRocks 同属服务层，但客户端（docker exec + clickhouse-client）、
+      系统表（system.tables / system.columns / system.parts）和输出转义都不一样：
+      照搬 MySQL 那套会在"保留字列名"和"TabSeparated 转义"两处翻车。
+    acceptance:
+      - 库表/字段/分区/DDL 能落进 6 类契约，不适用的类别如实标注。
+      - 客户端与 SQL 的传递方式不经过 shell 引号（沿用 KBP-016 的教训）。
+      - 桩用例覆盖正例与两条反例，并在真容器上跑通一次。
+    depends_on: []
+    next_action: 已收口。剩下两家（Pulsar / Flink）仍为 tier 3，属后续项。
+    evidence:
+      - "engine/core/sources.py 新增 clickhouse_sql 采集器：system.tables / system.columns / system.parts + SHOW CREATE TABLE，SQL 走 stdin"
+      - "真跑环境：WSL2 Debian 13 + Docker 26.1.5 + clickhouse/clickhouse-server:24.8（单容器，本机已有镜像）"
+      - "真跑结果：sources check rc=0（docker exec clickhouse-client --query 'SELECT 1'）；采集到 kb_stream.clicks_by_minute —— 3 个字段（含中文注释）、DDL 314 字符 / 11 行、分区 1、不适用 [QUALITY_RULE, SCHEDULE_TASK]、未采到空"
+      - "真跑暴露两点并已修：① system.columns 的列名 table 是保留字，必须用反引号（SQL 走 stdin，反引号不过 shell）；② TabSeparated 把换行转义成 \\n、单引号转义成 \\'，不还原会让生成的文档出现 COMMENT \\'窗口起点\\'"
+      - "注册表 oss_clickhouse：tier 3 → 1，required_keys 改为 bin/container，写入 verified 与三条 gaps；探活改成问组件本身（clickhouse-client --query 'SELECT 1'）"
+      - "用例：ClickHouseCollectorTests 5 条（契约映射 / 转义还原 / 分区失败不算没有分区 / docker exec 形状与 SQL 不过命令行 / 空实例不算成功）；tests/test_sources.py 40 passed"
+      - "文档：docs/realtime-sources.md 注册表行与第八节补 ClickHouse 的起停配方、原始输出与两点教训；测完容器已删"
+
+  - id: KBP-036
+    title: 发 1.3.0
+    status: completed
+    goal: goal#v130
+    priority: P0
+    required: true
+    summary: >
+      [Unreleased] 里攒了四块对使用者可见的改动（实时组件知识源、服务层真跑、详细测试、开源就绪），
+      其中"许可从 MIT 换成 Apache-2.0"是法律状态变更。按 docs/release-process.md 走完六步，
+      产出可引用的版本与 tag。
+    acceptance:
+      - 版本号单一来源（.claude-plugin/plugin.json）改成 1.3.0，两份清单与 CHANGELOG 一致。
+      - 四项本地验收全过（全量用例 / compileall / validate_oss / adapt_hooks --check）。
+      - 打 tag 并推送，main 与 origin/main 同步。
+    depends_on: [KBP-035]
+    next_action: >
+      已收口。GitHub 上的 Release 说明与 tag 关联只能在网页后台补（本机没有 gh CLI 也没有 token），
+      属所有者动作。
+    evidence:
+      - "版本：.claude-plugin/plugin.json 1.2.2 → 1.3.0；.codex-plugin/plugin.json 派生为 1.3.0+codex.20260921012208（cachebuster 保留）"
+      - "CHANGELOG：新增 ClickHouse 采集器一节后，把 [Unreleased] 定成 [1.3.0] - 2026-10-07，并在其上新开空的 [Unreleased]"
+      - "四项本地验收：全量 py -3 -m pytest tests -q → 111 passed；compileall rc=0；validate_oss 5 项全 OK；adapt_hooks --check 报 hook 启动器在本机可用"
+      - "提交 75fd510 已推送（fd440fc..75fd510），tag v1.3.0 已推送（* [new tag]）"
+      - "顺带更新两处会过期的数字：docs/realtime-sources.md 的测试覆盖表（35→40 用例、102→111 passed）与 docs/apache-readiness-audit.md 的机器检查行"
+
+  - id: KBP-037
+    title: 跨仓库：把 ddp 与 rtd 的开源标准补齐到同一口径
+    status: completed
+    goal: goal#v130
+    priority: P1
+    required: true
+    summary: >
+      三件套里只有本仓库（kbp）刚做完 Apache 标准验收。实测对比缺口是具体的：
+      data-development-plugin 缺 issue 模板与 docs 五件（README 地图 / glossary / release-process /
+      third-party-dependencies / apache-readiness-audit），realtime-data-plugin 缺 SUPPORT.md /
+      .github/CODEOWNERS / RELEASE.md。同一批问题在两个仓库复发，值得一次收敛。
+    acceptance:
+      - 两个仓库各自补齐缺口文件，口径与本仓库一致（不是各写一份说法）。
+      - 各自跑通本仓库的验收（用例 / 自检），并各自提交推送。
+      - 不改动它们的 .awr 台账（那两个仓库的台账由别的会话维护，并发写会互相踩）。
+    depends_on: []
+    next_action: >
+      已收口。并发教训写在这里：realtime-data-plugin 当时有另一条会话在跑，
+      所以两边都只加新文件、按显式路径提交（不 git add -A）；ddp 那边即使这样，
+      我的未跟踪文件仍被那条会话的 git add -A 式提交扫进了 e120f4c——不是坏事（内容完整、已推送），
+      但提交信息丢了我的说明，所以本项的来龙去脉只留在本合同台账里。
+    evidence:
+      - "realtime-data-plugin：新增 SUPPORT.md（按问题给去向 + 支持/不支持范围 + 响应预期）、.github/CODEOWNERS、.github/ISSUE_TEMPLATE/config.yml（关掉空白 issue + 文档地图/私密安全报告入口）"
+      - "realtime-data-plugin：新增 tests/test_oss_standard.py（7 条：4 组正例 + 3 组反例），把文件齐全 / LICENSE 与 NOTICE 与两份清单一致 / 自研源码许可头 / 无个人路径 机器化——该仓库原先只有人工审计，没有防回归"
+      - "realtime-data-plugin：全量 py -3 -m pytest tests -q → 103 passed；提交 8d9c278 已推送（5caa9ee..8d9c278）"
+      - "data-development-plugin：新增 docs/glossary.md（16 词 + 4 条常见误解）、docs/apache-readiness-audit.md（四维度逐条 + 未完成留白）、.github/ISSUE_TEMPLATE/config-help.md；README 两张表挂上新入口"
+      - "data-development-plugin：修掉一处实锤——NOTICE 引用了 tools/validate_plugin.py 与 tools/desensitize_terms.example.txt，两者本仓都不存在（那是姊妹插件的工具），改为指向真实实现（CI 的 provenance/secret scan）"
+      - "data-development-plugin：tests/test_oss_readiness.py 的必备清单纳入新增三件；python -m unittest tests.test_oss_readiness -v → 5 passed；全量 python -m unittest discover -s tests → 261 tests OK"
+      - "data-development-plugin 的六处改动随另一条会话的提交 e120f4c 一并入库并推送（该会话用了 git add -A 式提交），内容已逐项核对：config-help.md / NOTICE 修复 / README 两处 / glossary.md / apache-readiness-audit.md / test_oss_readiness.py"
+      - "本仓库顺带修掉两处误报（占位用户名 /home/u/、已脱敏写法 C:\\Users\\...\\ 不该被当成泄漏），并把判定改成'先看是不是占位或脱敏写法'"
+      - "口径说明：ddp 的第三方边界已由它自己的 NOTICE 四条写清、文档索引也在 README 里，所以**没有**再补一份 docs/third-party-dependencies.md 与 docs/README.md——两份清单必然漂移，这是三个插件共同的纪律"
+
+  - id: KBP-038
+    title: 诊断：为什么没有会话记忆
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      用户问"知识库插件为什么没有记录下来会话记忆，OpenViking 官网显示可以的"。
+      结论不是故障，是**没接**：本插件对 OpenViking 只用文件接口，写入作用域只有一个
+      viking://resources/（已定稿的知识成品）；OpenViking 的记忆是另一条链路——
+      会话 → 追加消息 → commit → 后台抽取记忆——本插件从未调用。
+    acceptance:
+      - 用本机可复核的证据说清"插件写了什么、OpenViking 的记忆链路是什么、缺口在哪"。
+      - 结论不靠推断，每一条都有文件或路由实证。
+    depends_on: []
+    next_action: 已收口（结论见 goal#session-memory 与本项 evidence）。
+    evidence:
+      - "插件侧实证：engine/core/ov_remote.py 只用到 /api/v1/fs/stat、/fs/mkdir、/content/write、/content/read、/content/download，uri_root 默认 viking://resources/"
+      - "OpenViking 侧实证（本机已安装包 0.3.24 的路由定义）：server/routers/sessions.py 提供 POST /api/v1/sessions（建会话）、POST /{id}/messages（追加）、POST /{id}/commit（归档 + 后台抽取记忆，返回 task_id）、POST /{id}/extract、GET /{id}（回读）、POST /{id}/used（回灌使用反馈）；tasks.py 提供 GET /api/v1/tasks/{task_id} 轮询"
+      - "官方概念实证：本机工作区导入的官方 README 第 5 条 Automatic Session Management——会话结束时主动触发记忆抽取，系统异步分析并写回 User 与 Agent 记忆目录"
+      - "工作区实证：viking/default/session/<uuid>/messages.jsonl 与 .meta.json（含 memories_extracted{profile,preferences,entities,events,cases,patterns,tools,skills}）；user/default/memories/{entities,events,preferences}；agent/web-playground/memories/experiences"
+      - "边界实证：插件只声明 PreToolUse / PostToolUse / SessionStart 三个 hook 事件（hooks/hooks.json），拿不到「会话结束 / 全量对话」，因此捕获只能命令驱动、不能自动嗅探——这一条写进文档而不假装能做到"
+
+  - id: KBP-039
+    title: 会话记忆引擎层
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      新增 engine/core/ov_memory.py：复用 ov_remote 的传输层与密钥解析，实现会话生命周期
+      （create / add_message / add_messages 分批 / commit / get_task / wait_task / get_session /
+      extract / used），并把会话 id 与提交留证落在 .kb/runtime/ 下（机器资产，只由引擎写）。
+    acceptance:
+      - 复用既有 ov.* 配置与密钥来源，不新增第二套密钥读取路径。
+      - 批量追加遵守服务端上限（100 条/次）并显式分批。
+      - 提交后返回 task_id 并能轮询到终态；超时如实报超时，不谎报成功。
+    depends_on: [KBP-038]
+    next_action: 已收口。
+    evidence:
+      - "engine/core/ov_memory.py：MemoryClient 继承 ov_remote.RemoteClient（复用密钥解析、账号头、错误解析），实现 create_session / add_message / add_messages（按服务端上限 100 条/次自动分批）/ commit / get_task / wait_task / get_session / extract / record_used"
+      - "接口不是猜的：路径与字段取自本机已安装 openviking 0.3.24 的 server/routers/sessions.py 与 tasks.py（文件头列出对照表）"
+      - "留证：.kb/runtime/memory/session.json（绑定 + 提交历史）与 .kb/runtime/memory/commit-<ts>.json（提交结果 + task 终态）"
+      - "超时语义：wait_task 超时抛 memory_task_timeout，但 commit 仍先落留证再抛（归档确实发生过，这条事实不能因为没等到抽取就消失）"
+      - "本地状态 helper：state_dir/state_path/load_state/save_state/current_session"
+
+  - id: KBP-040
+    title: 命令与配置接线
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      引擎有了能力还要能用：新增 kbp.py 的 memory 动词（begin / add / batch / commit / status / used），
+      配置里加 ov.memory_enabled 等开关（默认关，不影响现有发布链路），
+      并让 SessionStart 在启用时自动 begin（失败绝不能影响会话启动）。
+    acceptance:
+      - memory 动词与既有 verb 风格一致（JSON 输出、门控键、非零退出码）。
+      - 未启用或未配置时给出明确 gate 与下一步，而不是抛栈。
+      - SessionStart 的自动 begin 是 fail-open 的：出错只静默跳过，不打断会话。
+    depends_on: [KBP-039]
+    next_action: 已收口。
+    evidence:
+      - "engine/kbp.py 新增 memory 动词：begin / add（--content 或 --file）/ batch（--json-file）/ commit（--keep-recent / --no-wait）/ used（--uris）/ status；失败统一成 {ok:false, gate, reason} 并 rc=3"
+      - "配置：context.default_config 的 ov 段新增 memory_enabled（默认 false）、keep_recent_count（10）、task_timeout（180）"
+      - "hooks/sessionstart.py：启用时自动 begin（已有会话则复用），整段 fail-open——记忆链路任何异常都吞掉，不影响会话启动"
+      - "help 文本补 memory 动词说明（含 commit 会消耗模型配额的提示）"
+
+  - id: KBP-041
+    title: 会话记忆的用例（正例 + 反例）
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      这条链路的失败方式很安静：没启用、没配 key、服务端 500、提交任务超时——任何一种都
+      可能被"看起来成功"掩盖。用例要专门盯这些。
+    acceptance:
+      - 正例：建会话 → 追加（含 101 条自动分批）→ 提交 → 轮询到终态 → 回读 memories_extracted。
+      - 反例：未启用 / 缺 url / 缺 key / commit 超时 / 服务端返回 error 信封。
+    depends_on: [KBP-039]
+    next_action: 已收口。
+    evidence:
+      - "tests/test_memory.py 18 条：请求形状（建会话/追加/commit/任务轮询的路径与 body）、101 条自动分批成 [100, 1]、留证内容、used 记录、本地 dev 免 key、远端仍要 key"
+      - "反例：未启用（memory_disabled）、缺 url（OVConfigError）、无会话（memory_no_session）、空批次（memory_empty_batch）、任务超时（memory_task_timeout 且留证仍落盘）、服务端错误信封（SESSION_LIMIT 原样透出）"
+      - "契约变化同步改旧用例：tests/test_remote.py 的 test_missing_key_blocks 拆成远端反例 + 本机正例（原断言把「缺 key 一律拦」写死了）"
+      - "全量：py -3 -m pytest tests -q → 133 passed"
+
+  - id: KBP-042
+    title: 文档、留证与 CHANGELOG
+    status: completed
+    goal: goal#session-memory
+    priority: P1
+    required: true
+    summary: >
+      会话记忆与既有的"知识发布"是两条路，文档必须把边界说清：resources 是定稿成品、
+      memories 是会话抽取；同时写清捕获只能命令驱动（宿主只给三个 hook 事件）。
+    acceptance:
+      - 新增 docs/session-memory.md 并挂进文档地图；ARCHITECTURE 的运行时布局补 runtime/memory/。
+      - CHANGELOG 有对应小节；提交结果的留证文件形状写进文档。
+    depends_on: [KBP-040]
+    next_action: 已收口。
+    evidence:
+      - "新增 docs/session-memory.md：两条路的区别对照表、前置（服务先起着）、本地免 key 说明、六个命令、边界三条（捕获是命令驱动不是自动嗅探 / commit 会花钱 / 提交与抽取是两件事）、留证表、接口来源对照表"
+      - "docs/README.md 的『按环节读』表新增会话记忆一行；docs/ARCHITECTURE.md 的运行时布局补 runtime/memory/session.json 与 commit-<ts>.json"
+      - "CHANGELOG 新增两节：会话记忆（含诊断结论）、本机地址不再强制要 API Key（契约变化说明）"
+
+  - id: KBP-043
+    title: 真跑验证（本机 OpenViking）
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      桩测不出"服务端到底认不认这个请求"。要拿本机 OpenViking 真跑一遍：
+      建会话 → 追加 → 回读 message_count → 提交 → 轮询任务 → 看 memories_extracted。
+      注意成本边界：commit 会触发 LLM 记忆抽取（走使用者的 embedding/vlm 配额），
+      这一步要不要跑由使用者决定，跑之前先说清。
+    acceptance:
+      - 真跑的服务端证据（原始响应）留档；跑不了的如实写"未跑"与原因。
+      - 不隐藏成本：抽取会消耗模型配额这件事写在文档与台账里。
+    depends_on: [KBP-040, KBP-041]
+    next_action: >
+      已收口。链路的"归档"部分端到端验通；"抽取出记忆"这一步被**账户余额**挡住
+      （MiniMax 402），不是代码问题——充值或换可用的 embedding/vlm 端点后重跑即可，
+      命令与判据见 docs/session-memory.md 第六节。
+    evidence:
+      - "环境：本机 openviking-server 0.3.24 绑 127.0.0.1:1933；启动日志自证 dev 模式『authentication disabled ... bound to localhost』（也印证了本仓库放宽的本地免 key 规则）"
+      - "ov-check rc=0 → memory begin 真建会话 session_id=d979d2d4-9fe1-498f-8e75-ab332da346f9（account/user/agent 均 default）"
+      - "memory add ×2 服务端回读 message_count 1→2；第二轮 4 条消息再验一次"
+      - "memory commit 服务端返回 status=accepted、archive_uri=viking://session/<id>/history/archive_001、archived=true；后台任务 session_commit → completed；留证 commit-2026-10-10T182740Z.json / 182847Z.json / 183133Z.json"
+      - "磁盘双证：session/<id>/history/archive_001|002/{messages.jsonl,.abstract.md,.overview.md,.meta.json,.done} 均在；agent/default/memories/{identity.md,soul.md} 已初始化"
+      - "抽取失败的真因（服务端日志）：WM creation failed: 402 insufficient_balance_error；Failed to extract memories with v2: 402 insufficient balance；Extracted 0 memories；MiniMax embedding 连续失败 50 次触发熔断——抽取与 embedding 走 ov.conf 的 MiniMax 配额，账户余额不足；归档不花模型所以成功"
+      - "测完已停服务：按端口找到监听 1933 的 python 进程（pid 14064）并停止，复测 1933 已不可访问"
+
+  - id: KBP-044
+    title: 发现：门控把只读检索里的 openviking 字样当成裸调 CLI
+    status: completed
+    goal: goal#session-memory
+    priority: P1
+    required: false
+    summary: >
+      诊断阶段被自己的 setup_guard 拦下两次：命令里只要出现 openviking 字样
+      （哪怕只是 Get-ChildItem 列目录、Select-String 查路径）就被判成"未初始化就裸调知识库/OV CLI"。
+      这与本仓库历史上修过的那次误报同类（当时是路径里含 kbp.py 被拦）。
+    acceptance:
+      - 复现并写清触发条件；结论要么是"该修"（给出改法与用例），要么是"就这样"（给出理由）。
+    depends_on: []
+    next_action: >
+      已收口为"报告，不擅自改"。理由：改门控语义属于 GOVERNANCE 里"需要更强共识"的四类事之一，
+      本项只负责把证据摆齐；要修的话建议按既有做法扩展 gates.analyze_command 的"真调用"判定
+      （只读命令 + 路径参数不算调用），并补一条与 CliInvocationTests 同风格的用例。
+    evidence:
+      - "复现：在未初始化 .kb 的目录下跑 Get-ChildItem '…\\site-packages\\openviking\\server' -Recurse（纯只读）→ 被 setup_guard 拦下，提示『未初始化 .kb 知识库项目：先运行 /kb-setup』"
+      - "对照：同一命令把路径写成通配（.\\openv*\\server）就不再被拦——说明触发条件是命令文本里出现该字样，而不是真的在调用 CLI"
+      - "影响面：这是本轮唯一的工具层摩擦，绕开方式（用通配/变量构造路径）只是规避误报，没有改变任何门控语义；未修改 hooks/gates 代码"
+
+  - id: KBP-045
+    title: 真跑发现：任务 completed 但零产出，插件会报成抽取成功
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      真跑时服务端在**抽取失败**（MiniMax 402 余额不足）的情况下，仍把 session_commit 任务标成
+      status="completed"。按最早那版实现，插件据此报 extraction_ok: true —— 等于把"抽取失败"
+      报成"抽取成功"。这是留证撒谎，本仓库不接受，必须由插件自己识别。
+    acceptance:
+      - commit 的输出能区分"任务完成"与"真的抽出了记忆"。
+      - 零产出时给出可行动的提醒，而不是默认成功。
+    depends_on: [KBP-043]
+    next_action: 已收口。
+    evidence:
+      - "engine/core/ov_memory.py 新增 extraction_summary(task)：只看两个信号——抽出的条目数（memories_extracted 求和）与 LLM 用量（token_usage.llm.total_tokens）"
+      - "commit 输出从 extraction_ok 改成 task_ok / memories_total / llm_tokens / extraction_note；零产出零用量时附提醒『可能是没有可抽取内容，也可能是模型调用失败（配额/余额不足），查服务端日志确认』"
+      - "真跑复验：task_status=completed、task_ok=True、memories_total=0、llm_tokens=0、extraction_note 如期给出（留证 commit-2026-10-10T183133Z.json）"
+      - "用例 3 条：完成但零产出要提醒 / 有产出不算失败 / 任务失败不算 OK；tests/test_memory.py 21 passed"
+
+  - id: KBP-046
+    title: 核对 OpenViking 真实生效的模型配置（用户以为配的是豆包）
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      用户 2026-10-11 认为"应该配的是豆包系列的两个模型"，要求看真实线上配置。
+      核对结论：**本机真实生效的是 MiniMax，不是豆包**——配置意图、运行时索引元数据、
+      实跑日志三处互相印证；全机也找不到任何 ARK/豆包的凭据或痕迹。
+      抽取产出 0 的直接原因因此是 MiniMax 账户 402 余额不足，而不是模型选错或插件写错。
+    acceptance:
+      - 用"配置意图 + 运行时痕迹 + 实跑日志"三类证据给出结论，不靠推断。
+      - 给出换模型时必须注意的连带影响（维度变化要重建索引）。
+    depends_on: [KBP-043]
+    next_action: >
+      等使用者二选一：① 继续 MiniMax → 充值即可，配置不用动；② 换豆包 →
+      需要 ARK API Key（本机没有），且要接受**重建索引**（现有 collection 是 1536 维，
+      官方示例的 doubao-embedding-vision-251215 是 1024 维）。两条路我都能代跑并留证。
+    evidence:
+      - "配置意图：~/.openviking/ov.conf（mtime 2026-06-13；OPENVIKING_CONFIG_FILE 未设置，服务默认读它）——embedding: provider=minimax / model=embo-01 / dimension=1536；vlm: provider=minimax / model=MiniMax-Text-01"
+      - "运行时痕迹（最硬的一条）：<workspace>/vectordb/context/collection_meta.json 里写着 [openviking.embedding] {\"dimension\": 1536, \"model\": \"embo-01\", \"provider\": \"minimax\"}，collection 的 Dimension 也是 1536——索引就是用这套模型建的"
+      - "实跑日志（2026-10-11）：服务端启动打印 Initialized embedder (dim 1536)；抽取与 embedding 的实际外呼是 api.minimax.chat，返回 402 insufficient balance（'WM creation failed' / 'Failed to extract memories with v2' / 'MiniMax embedding failed'）"
+      - "凭据侧：环境变量 ARK_API_KEY / VOLC_API_KEY / VOLCENGINE_API_KEY / VOLC_ACCESSKEY / DOUBAO_API_KEY 全部未设置；在 .openviking / .dsh / .claude / .codex / .agents 里扫描 ark.cn-beijing|volces.com|doubao|VOLC_ 全部无命中；全盘只有一份 ov.conf、没有 OPENVIKING_CONFIG_FILE 覆盖"
+      - "另一条边界：服务端的 /api/v1/system/status 只返回 initialized/user，不暴露模型配置；/health 返回 auth_mode=dev。/api/v1/stats/memories 显示 total_memories=0（与抽取失败一致）。因此'线上配置'只能由配置文件 + 索引元数据 + 日志三方交叉确认"
+      - "换模型的连带影响（写进给用户的结论）：embedding 维度从 1536 换成豆包示例的 1024（doubao-embedding-vision-251215）会导致现有 collection 维度不匹配，必须重建索引/重新入库；换 VLM 不影响维度"
+      - "**范围更正（同日）**：本项结论只对本机实例成立。用户说的『线上』是另一台——见 KBP-047；那台配的确实是豆包两模型，用户的记忆没错。"
+
+  - id: KBP-047
+    title: 核对线上实例（<openviking-host>:1933）的模型配置：豆包两模型
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      用户澄清"线上"指的是远端 OpenViking（http://<openviking-host>:1933/studio/home），并问能不能登录看。
+      本机没有该机的 SSH 配置、known_hosts 也从没记录过它，所以走不了 SSH；但用本机
+      <key-file> 调它的 HTTP API 是通的——查清了它的版本、鉴权、模型清单与健康状态。
+    acceptance:
+      - 用该实例自己的接口给出模型清单，不靠推断。
+      - 明确它与本机实例的区别，避免把两台混为一谈。
+    depends_on: [KBP-046]
+    next_action: >
+      已收口。下一步是使用者的决定：要不要把插件指向线上实例跑一次真实写入
+      （memory begin/add/commit 会写会话并消耗豆包 token，线上是生产实例，不擅自跑）。
+    evidence:
+      - "实例身份：GET /health → {\"version\":\"0.4.11\",\"auth_mode\":\"api_key\"}；GET /api/v1/system/status（带 key）→ initialized=true, user=<user>；本机 <key-file>（110 字符，本机 ovcli.conf 只指向 localhost）正是这台实例的 key"
+      - "模型清单（来自它自己的 GET /api/v1/observer/models）：VLM = doubao-seed-2-0-lite-260428 / provider=volcengine / 2541 次调用 / 3,790,855 tokens / 最近 2026-10-08T23:00Z；Embedding = doubao-embedding-vision-251215 / provider=volcengine / 7522 次调用 / 5,514,535 tokens / 最近 2026-10-11T13:14Z——**确实是豆包系列两个模型**"
+      - "健康与规模：GET /ready → status=ready，checks: agfs ok / vectordb ok / api_key_manager ok / embedding ok / ollama not_configured；GET /api/v1/observer/system → Embedding 队列 processed 7981（requeued 497, errors 0）、vikingdb collection=context 278 vectors OK、models healthy；console/dashboard → files 266 / skills 2 / memories 2 / total 270"
+      - "接口清单来源：该实例的 GET /openapi.json（105 个路径，无需鉴权）；/api/v1/observer/models 就在其中，本机 0.3.24 没有这个路由器"
+      - "登服务器这条路走不通的实证：~/.ssh 下没有 config，known_hosts 里也没有 <openviking-host> 的记录（从没连过），因此只能走 HTTP API"
+      - "顺带修掉插件的真缺口（见下一条 KBP-048）：ov-check 对扁平 /health 会解包成 null，看不清健康与就绪"
+      - "**服务端实机核对（用户给了 ssh -i <ssh-key-file> root@<openviking-host>）**：主机 <host>（Alibaba Cloud Linux 8，已运行 76 天）；`/etc/systemd/system/openviking.service` 的 ExecStart=/data/ovenv/bin/openviking-server --host 0.0.0.0 --port 1933 --config /root/.openviking/ov.conf，WorkingDirectory=/data/openviking，自 2026-09-09 08:34 起 active(running)，MainPID 178621 监听 0.0.0.0:1933"
+      - "**生效配置原文（脱敏）**：/root/.openviking/ov.conf（mtime 2026-09-09 08:34:51）——storage.workspace=/data/openviking/data；embedding.dense: provider=volcengine、model=doubao-embedding-vision-251215、dimension=1024、input=multimodal、api_base=https://ark.cn-beijing.volces.com/api/coding/v3；vlm: provider=volcengine、model=doubao-seed-2-0-lite-260428、max_retries=2；server.auth_mode=api_key（api_key/root_api_key 已脱敏，未落任何日志）"
+      - "**线上状态盘点（这直接回答『为什么没有会话记忆』）**：GET /api/v1/sessions → []（0 个会话）；GET /api/v1/stats/memories → total_memories=0（0 条记忆）；observer/system 的 SessionCommit 队列 processed=0；但 viking://resources/ 下有 domain/domains/rules 共 266 个文件（abstract 已生成）——**知识发布在用、模型健康，而会话记忆一条都没有，因为从来没人在这台实例上建过会话**。key 对应用户 <user>（租户 <account>），读 default 租户的 memories 目录返回 403 属预期"
+      - "主机资源：磁盘 40G 用 28G（75%）、内存 1870MB（used 587MB）；这次巡检全程只读，未修改线上任何文件与服务配置"
+
+  - id: KBP-048
+    title: ov-check 看不出"就绪"：扁平 /health 被解包成 null
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      对线上实例自检时，ov-check 返回 ok:true 但 health:null——因为 /health 是扁平返回
+      （{"status":"ok","healthy":true,...}）没有 result 信封，走 request() 会被解包成 None；
+      而且只看 /health 也判断不出就绪：embedding 不可用时 /ready 给 503、/health 照旧 200。
+    acceptance:
+      - 自检要能同时看到"健康"与"就绪"，且未就绪必须如实体现。
+    depends_on: [KBP-047]
+    next_action: 已收口。
+    evidence:
+      - "engine/core/ov_remote.py：check_connection 改为直接 _send + _json_or_text，输出 health/health_http 与 ready/ready_http/ready_ok"
+      - "线上实测（<openviking-host>:1933）：ov-check → rc=0、health_http=200、ready_ok=true、ready.checks.embedding=ok、vectordb=ok"
+      - "用例 3 条（tests/test_remote.py::CheckConnectionTests）：扁平 health 要保留；/ready 503 时 ok=true 但 ready_ok=false；连不上要报连接错误"
+
+  - id: KBP-049
+    title: 线上真跑（方案 B）：会话记忆在生产实例上端到端跑通并产出记忆
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      使用者选 B：把插件指向线上生产实例（<openviking-host>:1933，豆包两模型）跑完整链路。
+      结果不只是"链路通"——**真的抽出了 3 条记忆，并且召回得到**。这是本目标最初那句
+      "为什么没有记录下来会话记忆"的终局答案：现在记录下来了，而且线上能读回来。
+    acceptance:
+      - 线上产出记忆数从 0 变正，且内容与写入的事实一致。
+      - 记忆能被检索召回（不只是计数）。
+      - 成本如实记录；不碰使用者的正式项目（只在 .tmp 下的临时项目操作）。
+    depends_on: [KBP-043, KBP-047]
+    next_action: >
+      已收口。留给使用者的两个选择：① 要不要保留这次演示产生的会话与记忆
+      （删的话 `DELETE /api/v1/sessions/{id}`，但那 3 条记忆也就没了）；
+      ② 要不要把正式项目的 `ov.url` 也指到线上，让日常会话都走这条链路。
+    evidence:
+      - "临时项目：.tmp/live-source/proj-remote（ov.url=http://<openviking-host>:1933，ov.api_key_file 指向本机密钥文件；值不打印）；正式项目一行未改"
+      - "会话：memory begin → session_id=20261011-114514-56428c2dd1264831（URI viking://user/<user>/sessions/<id>）；6 条消息逐条追加，服务端回读 message_count 1→6"
+      - "提交：status=accepted、archive_uri=viking://user/<user>/sessions/<id>/history/archive_001、archived=true；后台任务 session_commit → completed；留证 .kb/runtime/memory/commit-2026-10-11T114543Z.json"
+      - "抽取产出：memories_extracted={\"memory_write\": 3}；token_usage: llm prompt 12637 + completion 1030 = 13667，embedding 764，合计 14431；commit 后 memory status 回读 memories_extracted {total:3, memory_write:3}、commit_count=1、message_count=0（已归档）"
+      - "线上增量（GET /api/v1/stats/memories 与 observer/models 对比基线）：sessions 0→1；total_memories 0→3；by_category preferences 1 / entities 2；doubao-seed-2-0-lite-260428 calls 2541→2544（+3）、tokens +13667；doubao-embedding-vision-251215 calls 7523→7529（+6）、tokens +784"
+      - "落位：viking://user/<user>/memories/{entities,preferences}/ 与 identity.md/soul.md；会话归档在 sessions/<id>/history/archive_001"
+      - "**召回验证**（POST /api/v1/search/find）：'SQL 缩进偏好' 命中 viking://user/<user>/memories/preferences/当前用户/代码风格.md（score 0.544，摘要 '- SQL一律使用4空格缩进'）；同一次检索还命中 entities/AI项目/openviking_online.md（线上豆包两模型 + 0.4.11）与 openviking_local.md（本机 0.3.24/MiniMax/余额不足，别混）——三条记忆内容与写入事实一一对应"
+
+  - id: KBP-050
+    title: 日常接入：把项目接到线上实例 + 开场提示收工动作
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      能力做完了却只在演示里用过一次，等于没做。本项把"日常怎么用"补齐：
+      接入说明（配置片段 + 怎么分辨两台实例）与开场提示（收工前 commit）。
+    acceptance:
+      - 接入说明能让使用者照着把项目指向线上实例，并验证接对了。
+      - 启用会话记忆时，开场就把"收工前 commit"讲出来。
+    depends_on: [KBP-049]
+    next_action: 已收口。落地到具体项目只需改该项目 .kb/config.json 的 ov.url 与 ov.api_key_file。
+    evidence:
+      - "docs/session-memory.md 新增『日常怎么用（接到线上实例）』：三件日常（配置 → 开场建会话 → 收工 commit）+ 配置片段 + 分辨两台实例的四条判据（/health 的 version / auth_mode / account_id / /ready 的 embedding）"
+      - "hooks/sessionstart.py 的 _memory_note 在启用时补一句『收工前跑 memory commit（归档并触发记忆抽取，会消耗模型配额）』；复用与会话新建两条路径都带"
+      - "用例：tests/test_memory.py::SessionStartWiringTests 断言提示里必须出现 memory commit（否则这件事永远靠人记得）"
+
+  - id: KBP-051
+    title: /kb-remember：把当轮要点写进会话的命令与技能
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      宿主只给三个 hook 事件、拿不到全量对话，所以"记会话"必须有个明确入口，
+      否则没人会记得手敲 memory add。本项提供 /kb-remember（Codex 入口 kbp-remember）。
+    acceptance:
+      - 命令写清前置（已初始化、memory_enabled、ov-check ready_ok）、三步动作与汇报要求。
+      - 写什么/不写什么有可执行的判断标准；Codex 技能由生成器产出。
+    depends_on: [KBP-050]
+    next_action: 已收口。
+    evidence:
+      - "新增 commands/remember.md：前置三条（含 ov-check ready_ok:true 的硬要求）、三步（begin → batch --json-file → commit/status）、写什么不写什么（要写偏好/口径/踩坑/环境事实；不写密钥、内网地址、真实数据、未发生的推测；判断标准=三个月后自己看到能不能少踩一次坑）、汇报要求（memories_total / llm_tokens / 留证路径；extraction_note 非空必须原样告诉用户）"
+      - "生成器修复：tools/build_codex_surface.py 的 COMMAND_NAMES 是硬编码清单，漏了 remember → 新命令不会生成 Codex 技能；已补，重跑生成 skills/kbp-remember/SKILL.md"
+      - "tests/test_generated_surface.py 的 EXPECTED_COUNT/EXPECTED_SKILLS 从 12/9 更新为 13/10（这条用例就是为『新增生成物必须同步计数』存在的，红过一次才对）"
+      - "README 三处入口补齐：commands/ 清单、Claude/Codex 命令对照表、快速开始里的 /kb-remember"
+
+  - id: KBP-052
+    title: 防误连：commit 前的就绪门 + 本机失效实例已停
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      本机那台 0.3.24/MiniMax 实例余额 402 时，commit 照样返回 accepted、任务照样 completed，
+      只是抽出 0 条——白提交一次还留下"看起来成功"的留证。要有一个门在提交前拦住它。
+    acceptance:
+      - 目标实例未就绪时拒绝提交，并指出下一步。
+      - 本机失效实例的处理与"怎么认出它"写进文档。
+    depends_on: [KBP-049]
+    next_action: 已收口。
+    evidence:
+      - "engine/core/ov_memory.py 新增 MemoryClient.check_ready()（GET /ready，返回 ok/http_status/payload）；commit 在提交前调用它，未通过即抛 memory_not_ready 并拒绝提交（附 ready 详情与下一步：先修端点再用 ov-check 自检）"
+      - "用例 2 条：未就绪时 commit 必须拒发请求且不留 commit-*.json 留证；就绪探针要如实带回 http_status 与 payload"
+      - "本机实例状态核对：Get-NetTCPConnection -LocalPort 1933 无监听——本机那台已停；文档给出四判据（version=0.3.24 / auth_mode=dev / 无 account_id / ready 可能失败）用于一眼认出它"

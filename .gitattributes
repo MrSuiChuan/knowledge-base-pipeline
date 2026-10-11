@@ -1,0 +1,13 @@
+# 统一按 LF 检出，让"仓库里的字节"在各平台可预期。
+# 注意：本插件目前没有 engine/.engine-manifest.json 这类按内容哈希的完整性基线
+# （对比 data-development-plugin）。如果以后加上了，务必先归一化行尾再哈希，
+# 否则本机 CRLF / 新克隆 LF 会让每个贡献者的自检全线失败。
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.ico binary
+*.zip binary
