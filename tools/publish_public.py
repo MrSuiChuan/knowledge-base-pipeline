@@ -191,6 +191,26 @@ def copy_snapshot(dest: Path) -> Dict[str, int]:
     return total
 
 
+def regenerate_derived(dest: Path) -> List[str]:
+    """在镜像里重算由内容派生的产物。
+
+    脱敏会改文件内容，凡是"内容哈希"或"由源生成"的东西都得在镜像里重算一遍，
+    否则镜像自相矛盾：实测踩到过——`engine/core/ov_remote.py` 的一句注释被脱敏，
+    `engine/.engine-manifest.json` 里的 sha256 就与它对不上了，公开仓库的
+    `EngineManifestTests` 直接红。
+    """
+    done: List[str] = []
+    for name in ("generate_engine_manifest.py", "build_codex_surface.py"):
+        script = dest / "tools" / name
+        if not script.is_file():
+            continue
+        proc = subprocess.run(
+            [sys.executable, str(script)], cwd=str(dest), capture_output=True, text=True
+        )
+        done.append(f"{name}({'ok' if proc.returncode == 0 else 'FAIL'})")
+    return done
+
+
 def apply(remote: str, mirror: Path, push: bool) -> int:
     if check() != 0:
         print("\n[中止] --check 未通过，不推送。")
@@ -198,6 +218,9 @@ def apply(remote: str, mirror: Path, push: bool) -> int:
     ensure_mirror(mirror, remote)
     sha = head_sha()
     counts = copy_snapshot(mirror)
+    derived = regenerate_derived(mirror)
+    if derived:
+        print("重算派生产物：" + "、".join(derived))
     run_git("add", "-A", cwd=mirror)
     status = run_git("status", "--porcelain", cwd=mirror).stdout.strip()
     if not status:
