@@ -48,31 +48,32 @@ _SRC_IP = "47.120." + "37.220"
 _SRC_HOST = "skillhh" + "-prod"
 _SRC_PEM = "~/Downloads/skillhh" + ".pem"
 _SRC_PEM_NAME = "skillhh" + ".pem"
-_SRC_KEY_TENANT_1 = "xhdw_kb" + "-admin.key"
-_SRC_KEY_TENANT_2 = "data-dev_kb" + "-admin.key"
 _SRC_KEYPATH = "~/.openviking/api" + ".key"
-_SRC_TENANT_PATH = "xhdw" + "/data-dev"
 _SRC_TABLE_CELL = "data-dev / kb" + "-admin"
-_SRC_TENANT_CN = "租户 " + "xhdw"
 _SRC_USER = "kb" + "-admin"
 _SRC_WORKSPACE = "openviking" + "_workspace"
 
+# 内置规则：只放**形状类**标识（地址、主机名、路径、通用用户名）。
+# 内部代号、租户名、业务专有名**不进仓库**——它们放在本地词表里（见下）。
 # 有序替换表：**长串在前**，否则短的先命中会把长的切碎。
-REPLACEMENTS: Tuple[Tuple[str, str], ...] = (
+BUILTIN_RULES: Tuple[Tuple[str, str], ...] = (
     (f"http://{_SRC_IP}:1933", "http://<openviking-host>:1933"),
     (f"{_SRC_IP}:1933", "<openviking-host>:1933"),
     (_SRC_IP, "<openviking-host>"),
     (_SRC_HOST, "<host>"),
     (_SRC_PEM, "<ssh-key-file>"),
-    (_SRC_KEY_TENANT_1, "<key-file>"),
-    (_SRC_KEY_TENANT_2, "<key-file>"),
     (_SRC_KEYPATH, "<key-file>"),
-    (_SRC_TENANT_PATH, "<account>"),
     (_SRC_TABLE_CELL, "<account> / <user>"),
-    (_SRC_TENANT_CN, "租户 <account>"),
     (_SRC_USER, "<user>"),
     (_SRC_WORKSPACE, "<workspace>"),
 )
+
+# 本地词表（**不入库**，见 .gitignore）：内部代号/租户名这类"不能写进仓库"的替换规则。
+# 仓库里只有示例文件 tools/public_mirror_terms.example.txt；本机那份由使用者自己维护。
+DEFAULT_TERMS_FILE = ROOT / "tools" / "public_mirror_terms.txt"
+
+# 规则表在运行时组装：外部词表在前（更具体），内置在后。
+REPLACEMENTS: Tuple[Tuple[str, str], ...] = BUILTIN_RULES
 
 # 硬标识：脱敏后一个都不许残留（出现即视为发布失败）
 HARD_PATTERNS: Tuple[str, ...] = (
@@ -95,6 +96,36 @@ def sanitize(text: str) -> Tuple[str, Dict[str, int]]:
             counts[f"{src} -> {dst}"] = text.count(src)
             text = text.replace(src, dst)
     return text, counts
+
+
+def load_terms(path: Path | None = None) -> Tuple[Tuple[Tuple[str, str], ...], List[str]]:
+    """加载外部脱敏词表，返回（规则, 说明）。
+
+    格式：每行 ``源串 => 替换``；``#`` 开头与空行忽略。文件默认不在仓库里
+    （内部代号不该进 git），仓库只提供 ``tools/public_mirror_terms.example.txt``。
+    """
+    target = path or DEFAULT_TERMS_FILE
+    if not Path(target).is_file():
+        return (), [f"未找到外部词表 {target}（只有内置形状规则生效）"]
+    rules: List[Tuple[str, str]] = []
+    notes: List[str] = []
+    for lineno, line in enumerate(Path(target).read_text(encoding="utf-8").splitlines(), start=1):
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        if "=>" not in text:
+            notes.append(f"{target}:{lineno} 缺 `=>`，已跳过")
+            continue
+        src, dst = text.split("=>", 1)
+        rules.append((src.strip(), dst.strip()))
+    notes.append(f"外部词表 {target}：{len(rules)} 条规则")
+    return tuple(rules), notes
+
+
+def set_rules(extra: Tuple[Tuple[str, str], ...]) -> None:
+    """把外部规则放在内置规则之前（外部更具体）。"""
+    global REPLACEMENTS
+    REPLACEMENTS = tuple(extra) + BUILTIN_RULES
 
 
 def residuals(text: str, rel: str) -> List[str]:
@@ -120,7 +151,11 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def check() -> int:
+def check(terms: Path | None = None) -> int:
+    extra, notes = load_terms(terms)
+    set_rules(extra)
+    for note in notes:
+        print(note)
     files = tracked_files()
     total: Dict[str, int] = {}
     changed: List[str] = []
@@ -211,8 +246,8 @@ def regenerate_derived(dest: Path) -> List[str]:
     return done
 
 
-def apply(remote: str, mirror: Path, push: bool) -> int:
-    if check() != 0:
+def apply(remote: str, mirror: Path, push: bool, terms: Path | None = None) -> int:
+    if check(terms) != 0:
         print("\n[中止] --check 未通过，不推送。")
         return 1
     ensure_mirror(mirror, remote)
@@ -253,12 +288,14 @@ def main(argv: Iterable[str] | None = None) -> int:
     group.add_argument("--apply", action="store_true", help="生成脱敏快照并推送到公开仓库")
     parser.add_argument("--remote", default=DEFAULT_REMOTE)
     parser.add_argument("--mirror", default=str(DEFAULT_MIRROR))
+    parser.add_argument("--terms", default=None, help="外部脱敏词表（每行 `源串 => 替换`；默认 tools/public_mirror_terms.txt，可不配置）")
     parser.add_argument("--no-push", action="store_true", help="只生成提交，不推送")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
+    terms = Path(args.terms) if args.terms else None
     if args.check:
-        return check()
-    return apply(args.remote, Path(args.mirror), push=not args.no_push)
+        return check(terms)
+    return apply(args.remote, Path(args.mirror), push=not args.no_push, terms=terms)
 
 
 if __name__ == "__main__":

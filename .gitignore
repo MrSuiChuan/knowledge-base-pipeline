@@ -18,6 +18,9 @@ __pycache__/
 .awr/cache/
 .awr/clients/
 .awr/executions/
+
+# 公开镜像的本地脱敏词表：内部代号不进仓库（仓库里只留 .example.txt）
+tools/public_mirror_terms.txt
 .awr/intake/inventory.json
 
 # AWR local runtime state

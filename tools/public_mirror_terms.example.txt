@@ -1,0 +1,11 @@
+# 公开镜像的**本地**脱敏词表（示例）
+#
+# 真正要用的那份是 tools/public_mirror_terms.txt —— 它**不进 git**（.gitignore 已排除），
+# 因为里面装的是内部代号、租户名、业务专有名这类"仓库里不该出现的词"。
+#
+# 格式：每行 `源串 => 替换`；`#` 开头与空行忽略；按文件顺序生效（**长的写前面**）。
+# 本文件只是示例：下面用假名字演示，照抄改成你自己的即可。
+
+example-tenant/example-account => <account>
+example-tenant_<user>.key    => <key-file>
+租户 example-tenant            => 租户 <account>
