@@ -1210,3 +1210,27 @@ work_items:
       - "三处自洽性缺口的修复（都是 public 副本先红才发现的）：① 用例样本与 HARD_PATTERNS 里的字面量要运行时拼装，否则公开副本把它们替换成占位符后断言/规则一起失效；② 规则表源串同理拼装，否则规则退化成恒等映射、--check 永远报『2 个文件需脱敏』；③ **发布时在镜像里重算派生产物**——脱敏改了 engine/core/ov_remote.py 的注释后，engine/.engine-manifest.json 的 sha256 与镜像内容对不上，公开仓库的 EngineManifestTests 直接红"
       - "文档：docs/release-process.md 第 7 节（公开镜像同步：替换表 + 三条纪律）、README『公开镜像与私有主干』一节（解释公开仓库里的 <openviking-host> 等占位符是故意的）"
       - "用例：tests/test_publish_public.py 6 条（替换正确、长串优先、兄弟项目真名不动、残留会被抓、CI 检测行豁免、真仓库 --check 必须过）"
+
+  - id: KBP-054
+    title: 私有仓库 CI 报错：脱敏工具把内部代号写进了仓库
+    status: completed
+    goal: goal#session-memory
+    priority: P0
+    required: true
+    summary: >
+      用户报"私有仓库 CI 报错"。按 CI 的实际命令在**新鲜克隆**里逐步复现：unittest 那步是绿的
+      （Ran 152 tests OK），挂的是 `provenance/secret scan` —— 我上一轮新增的脱敏工具与用例里
+      写了内部代号（`xhdw`，7 处命中）。这不是误报：CI 的规矩就是仓库里不许出现内部代号，
+      脱敏工具也不该例外。
+    acceptance:
+      - 在新克隆里按 CI 的每一步复现出失败点，而不是猜。
+      - 修完在两端 Python（3.9 / 3.12）与两条扫描上都真绿。
+    depends_on: [KBP-053]
+    next_action: 已收口。以后新增"要脱敏的词"时，写进本地词表而不是源码。
+    evidence:
+      - "复现方式：git clone 私有仓库到 .tmp → 按 ci.yml 逐步跑：unittest discover（Ran 152 tests OK，绿）→ compileall（绿）→ validate_oss（绿）→ rg 两条扫描（第一条命中 7 处 → CI 红）。教训：pytest 绿不等于 CI 绿，必须按 CI 的命令与**新鲜克隆**复现。"
+      - "命中来源：tools/publish_public.py 3 处（租户相关规则源串）+ tests/test_publish_public.py 4 处（样本与断言里的字面量）。附带发现：rg 默认跳过隐藏目录，所以 .awr/ 台账里同样的词**不会被 CI 扫到**（CI 用的是 `rg . -g '!.github/**'`，没有 --hidden）"
+      - "改法（沿用本仓库既有做法：词表移出仓库、扫描保留）：内置规则只留形状类标识（IP/主机名/密钥路径/工作区/通用用户名）；内部代号与租户名放进本地词表 tools/public_mirror_terms.txt（.gitignore 排除，rg 默认不扫），仓库只提交 tools/public_mirror_terms.example.txt 说明格式（示例用假名 example-tenant）"
+      - "工具增强：load_terms()（每行 `源串 => 替换`，跳过空行与 # 注释，缺 => 的行给提示）+ --terms 参数 + 外部规则排在更具体位置；check 会打印『外部词表 …：N 条规则』或『未找到外部词表（只有内置形状规则生效）』"
+      - "本地按 CI 全流程复验：3.12 与 3.9 两端 `unittest discover -s tests` 均 Ran 152 tests OK；两条禁止词扫描均无命中；compileall 干净；validate_oss 5/5；hooks job（adapt_hooks --check + test_hook_wiring + CliInvocationTests）6 条 OK"
+      - "再用**新鲜克隆**复核：私有仓库 0b265d0 的两条扫描均无命中；公开镜像同步后，公开副本自己的禁止词扫描同样无命中、硬标识残留干净、--check 报 0 处需脱敏"
