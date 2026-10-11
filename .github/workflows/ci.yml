@@ -29,7 +29,10 @@ jobs:
           # --hidden：连 .awr 这类隐藏目录一起扫。rg 默认跳过隐藏条目，
           # 台账（.awr/intake/work-ledger.yaml 是跟踪文件）曾因此漏检过内部代号。
           # .git 要显式排除；.tmp 等被 .gitignore 排除的目录 rg 本来就不扫。
-          ! rg -n --hidden -i "<account>|alipay|复刻|调研文档|knowledge_base" . -g '!.github/**' -g '!.git/**' || exit 1
+          # 那个内部代号写成字符类（xh[d]w）：发布脚本按字面替换，若写成本体，
+          # 公开镜像里的这份扫描表会被替换成占位符，于是 CI 反过来去扫文档里的占位符、
+          # 自命中变红（2026-10-11 实测）。字符类 rg 照样能匹配真身，且与占位符无碰撞。
+          ! rg -n --hidden -i "xh[d]w|alipay|复刻|调研文档|knowledge_base" . -g '!.github/**' -g '!.git/**' || exit 1
           ! rg -n --hidden "ark-[A-Za-z0-9_-]{20,}|rvk_[A-Za-z0-9_-]{20,}" . -g '!.github/**' -g '!.git/**' || exit 1
 
   hooks:

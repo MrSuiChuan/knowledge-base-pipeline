@@ -112,6 +112,20 @@ class SanitizeTests(unittest.TestCase):
         """CI 里那行"禁止出现的词"列表本身不参与替换，否则检测形同虚设。"""
         self.assertEqual([], self.pub.residuals('! rg -n -i "forbidden-term"', ".github/workflows/ci.yml"))
 
+    def test_detector_list_must_not_self_hit_the_mirror(self) -> None:
+        """检测表被替换成占位符后，不能反过来命中镜像里的文档（KBP-056：公开 CI 曾必红）。"""
+        ci = ".github/workflows/ci.yml"
+        files = {
+            ci: '! rg -n --hidden -i "<account>|forbidden-term" . -g \'!.git/**\' || exit 1',
+            "README.md": "占位符说明：账号写 <account>，用户写 <user>",
+        }
+        self.assertEqual(
+            ["README.md 命中检测表模式 <account>|forbidden-term"],
+            self.pub.detector_selfhits(files),
+        )
+        files[ci] = '! rg -n --hidden -i "exa[m]ple-term|forbidden-term" . || exit 1'
+        self.assertEqual([], self.pub.detector_selfhits(files))
+
     def test_repository_passes_the_publish_check(self) -> None:
         """真仓库跑一遍 --check：确保现在就能发，而不是"记得发的时候才发现有残留"。"""
         self.assertEqual(0, self.pub.check())

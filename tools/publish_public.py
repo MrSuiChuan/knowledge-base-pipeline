@@ -26,12 +26,16 @@
 * 替换是**字面量、有序**的（长的在前），不做正则猜测——猜错会连好内容一起改；
 * ``--check`` 在推送前做**残留检查**：硬标识（IP/主机名/账号/密钥路径/工作区）一个都不许留；
 * 唯一豁免：``.github/workflows/ci.yml`` 里的脱敏检测模式本身（它列的是"禁止出现的词"，
-  把这个列表本身也替换掉，检测就形同虚设）。
+  把这个列表本身也替换掉，检测就形同虚设）；
+* 但那行检测表**不能反过来命中镜像自己的文件**：踩过一次（KBP-056）——表里写着内部代号，
+  被替换成 ``<account>`` 后，公开 CI 转头去扫文档里的占位符，公开仓库必红。发布前用
+  ``detector_selfhits()`` 拦掉。
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import subprocess
 import sys
@@ -87,6 +91,9 @@ HARD_PATTERNS: Tuple[str, ...] = (
 # 允许残留的文件（脱敏检测模式本身列的就是这些词，替换掉等于废掉检测）
 RESIDUAL_ALLOWLIST = (".github/workflows/ci.yml",)
 
+# 检测表的那行 `rg -n --hidden -i "<模式>"`：把模式抠出来，用来验它不会自命中。
+_RG_PATTERN = re.compile(r'rg -n(?: -{1,2}[a-zA-Z-]+)*\s+"([^"]+)"')
+
 
 def sanitize(text: str) -> Tuple[str, Dict[str, int]]:
     """按替换表脱敏，返回（结果, 每条规则命中次数）。"""
@@ -135,6 +142,29 @@ def residuals(text: str, rel: str) -> List[str]:
     return [pattern for pattern in HARD_PATTERNS if pattern in text]
 
 
+def detector_selfhits(files: Dict[str, str]) -> List[str]:
+    """公开镜像里那行"禁止出现的词"表，不能命中镜像自己的文件。
+
+    ``files`` 传**脱敏后**的内容（即镜像里的样子）。CI 只排除 ``.github/**``，
+    这里照做（并更严：只看跟踪文件，不会漏）。踩过的坑见模块 docstring。
+    """
+    hits: List[str] = []
+    for rel, text in files.items():
+        if not rel.endswith(".github/workflows/ci.yml"):
+            continue
+        for pattern in _RG_PATTERN.findall(text):
+            try:
+                rx = re.compile(pattern, re.IGNORECASE)
+            except re.error:
+                continue
+            for other, body in files.items():
+                if other.startswith(".github/"):
+                    continue
+                if rx.search(body):
+                    hits.append(f"{other} 命中检测表模式 {pattern}")
+    return hits
+
+
 def tracked_files() -> List[str]:
     proc = subprocess.run(
         ["git", "ls-files", "-z"], cwd=str(ROOT), capture_output=True, check=True
@@ -160,6 +190,7 @@ def check(terms: Path | None = None) -> int:
     total: Dict[str, int] = {}
     changed: List[str] = []
     problems: List[str] = []
+    cleaned_files: Dict[str, str] = {}
     for rel in files:
         path = ROOT / rel
         try:
@@ -167,6 +198,7 @@ def check(terms: Path | None = None) -> int:
         except (UnicodeDecodeError, OSError):
             continue
         cleaned, counts = sanitize(text)
+        cleaned_files[rel] = cleaned
         if counts:
             changed.append(rel)
             for rule, n in counts.items():
@@ -174,6 +206,8 @@ def check(terms: Path | None = None) -> int:
         left = residuals(cleaned, rel)
         if left:
             problems.append(f"{rel} 脱敏后仍含：{', '.join(left)}")
+    for hit in detector_selfhits(cleaned_files):
+        problems.append(f"公开镜像检测表自命中：{hit}")
 
     print(f"跟踪文件 {len(files)} 个；需要脱敏 {len(changed)} 个")
     for rule, n in sorted(total.items(), key=lambda kv: -kv[1]):

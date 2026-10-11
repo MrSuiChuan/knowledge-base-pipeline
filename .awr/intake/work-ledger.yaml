@@ -1258,3 +1258,29 @@ work_items:
       - "一致性由 tests/test_ci_check.py 保证：扫描模式**从 ci.yml 读**（工具不另抄一份），并断言 ci.yml 两行都带 --hidden、显式排除 .git、workflow 里每条 run 都有对应动作；用例自身也不许出现扫描列表里的那个词——第一版把真词直接写进了用例，被 ci_check 当场抓出来（工具当场证明自己有用）"
       - "实测：`ci_check --fast` 8 步全过；`ci_check --py-floor` **10 步全过**（含 3.9 单测）；本地词表补兜底规则（更长的规则先命中），防将来再出现裸写"
       - "CONTRIBUTING 的提交前清单改成先跑 ci_check（并保留逐条命令与『pytest 绿 ≠ CI 绿』的教训）"
+
+  - id: KBP-056
+    title: 公开镜像 CI 自命中占位符——扫描表本体被脱敏后反过来扫文档
+    status: completed
+    goal: goal#session-memory
+    priority: P1
+    required: true
+    summary: >
+      KBP-055 的公开镜像复核暴露一个跨仓库缺陷：发布脚本按**字面**替换内部代号，
+      而 ci.yml 的禁止词扫描表里正好写着这个代号，于是同步到公开镜像后那一行变成了
+      `<account>`——公开 CI 转头去扫文档里的脱敏占位符，README 与 docs 三处占位符说明表自命中，**公开仓库 CI 必红**。
+      私有仓库本地永远看不到这个现象（`.github/**` 被排除、且私有副本里写的是真身）。
+    acceptance:
+      - 公开镜像里扫描表不再与占位符碰撞，且仍能匹配真身。
+      - 用公开仓库新鲜克隆复核两条扫描与 ci_check 全绿。
+    depends_on: [KBP-055]
+    next_action: 已收口。同步公开镜像后，仍建议在**公开仓库的新鲜克隆**里跑一遍 ci_check（发布脚本的自命中门只能保证"那行检测表不撞自己的文件"，跑不了公开侧的单测与 hooks）。
+    evidence:
+      - "发现方式：publish_public 同步后，按 KBP-055 的流程在 .tmp/pubcheck-230633 新鲜克隆里跑 ci_check --fast → 步骤 4.1 失败，命中 README.md:189 / docs/release-process.md:80 / docs/session-memory.md:98（都是占位符说明表）"
+      - "根因定位：在公开副本里查看 ci.yml 的扫描行，发现那行**整体被替换成了占位符**（原来的真身词条 → `<account>`，其余词条照旧）；私有副本同一行仍是真身，本地因此从未复现"
+      - "改法（一行）：扫描表里把该代号写成字符类 `xh[d]w` —— 发布脚本按字面匹配，字符类不会被替换；rg 照样匹配真身，且与 `<account>` 占位符无交集。旁边留三行注释说明原因"
+      - "加机器门（防复发）：publish_public 新增 `detector_selfhits()` —— 发布前把镜像里那行检测表抠出来，反过来扫镜像自己的（脱敏后）文件，命中即中止；`--apply` 本来就要先过 `--check`，所以这条门卡在推送前"
+      - "这道门自己也踩了一次：抠模式的 regex 只认 `--long` 选项、漏了 `-i`，在真 ci.yml 上一个模式都抠不出来（静默失效）；新用例当场失败暴露，改成 `-{1,2}` 后正确抠出两条模式"
+      - "tests/test_publish_public.py 新增 `test_detector_list_must_not_self_hit_the_mirror`：占位符碰撞必须报出来，字符类写法不许误报"
+      - "私有侧实测：ci_check --fast 8 步全绿（扫描 4.1/4.2 均无命中）"
+      - "公开侧实测：重新同步后公开副本 ci.yml 的扫描行已带字符类写法，新鲜克隆里 ci_check --fast 8 步全绿、两条扫描均无命中；硬标识（服务器 IP、运维账号、私钥路径）无残留，唯二命中是发布工具自身的拼装串（`\"skillhh\" + \"-prod\"` 这类，用来匹配真身再替换，属预设）"
