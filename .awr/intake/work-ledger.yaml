@@ -1310,3 +1310,29 @@ work_items:
       - "死指针修复：docs/README.md 里指向『README 的发布一节』的那行改指到新的「日常命令」表；SUPPORT.md 的「快速开始」引用仍然有效（保留了节名）"
       - "CHANGELOG 的 [Unreleased] 补一条 Changed，写清改了哪三件事"
       - "机器检查：`ci_check --py-floor` 9 步全绿（含 3.9 与 3.12 两端单测、validate_oss、两条脱敏扫描、hook 接线）；`Python 3.9+` 声明仍在，repo invariants 未红"
+
+  - id: KBP-058
+    title: 发布同步只认离线插件的运行时目录，实时插件一行都同步不进去
+    status: completed
+    goal: goal#consumer-index-both-dev-plugins
+    priority: P1
+    required: true
+    summary: >
+      consumer 同步把路径写死成 consumer_root/.data-dev/mock/kb/index.json。消费侧其实有两个
+      开发插件：离线插件写 .data-dev/，实时插件写 .rtd/（它的 KnowledgeIndex 按 .rtd → .data-dev
+      两级探测）。对着一个已初始化的实时项目，生产端只会回
+      {"ok": false, "reason": "consumer 无 data-development-plugin kb 索引: …"}——
+      索引就在 .rtd/ 里躺着，一行也同步不进去。实时插件那份文档把这条列在"还差什么"，
+      注明等本插件排期；本轮补上。
+    acceptance:
+      - 生产侧按"哪个运行时目录已经存在"判定，不写死一家；两个都没有时如实列出候选路径。
+      - 回归用例覆盖实时项目（.rtd/）与"两个目录都在"时的判定，并断言写入的索引路径。
+      - 两侧文档（本插件 README / commands / ARCHITECTURE，实时插件的融合台账与契约文档）同步。
+    depends_on: []
+    next_action: 已完成：双候选判定 + 2 条回归用例 + 两侧文档同步；全量 160 通过。
+    evidence:
+      - "engine/core/sync.py：新增 CONSUMER_INDEX_CANDIDATES（.data-dev / .rtd）、consumer_index_path()；_update_data_dev_index 改名 _sync_consumer_index，返回值补 index 字段，缺索引时 reason 同时列出两个候选；配置键 consumer_data_dev_root 保留但语义改为『消费方项目根』"
+      - "回归：tests/test_engine.py::ConsumerContractTests 新增 test_syncs_into_a_realtime_plugin_project 与 test_prefers_the_consumer_that_is_initialized"
+      - "全量：py -3 -m unittest discover -s tests → Ran 160 tests OK"
+      - "生成物同步：改了 commands/publish.md 后重跑 tools/build_codex_surface.py（skills/kbp-publish 重生）与 tools/generate_engine_manifest.py（18 文件清单）"
+      - "文档：README 的消费闭环、commands/publish.md 的三条返回值示例、docs/ARCHITECTURE 第 7 节、docs/REPRODUCTION-NOTES 第 4 节；实时插件侧 docs/kb-integration.md 的『生产端支持 .rtd/』改成已做、knowledge/kb-index-contract.md 同步"

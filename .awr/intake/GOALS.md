@@ -15,6 +15,31 @@
 
 当前实现是否满足这个目标，由各工作项的 acceptance 逐条核验；在核验通过前不视为已达成。
 
+# 让发布流程真正写给两个开发插件（含实时插件） {#consumer-index-both-dev-plugins status=active}
+
+用户 2026-10-13 要求全量审核三个插件（离线数开 / 实时数开 / 记忆插件）的架构与流程，
+以及两个开发插件分别与记忆插件的搭配流程。
+
+审核结论：本插件的七环节流水线、门控强度与边界声明都成立（逐环节见
+data-development-plugin 的 `goal#plugin-cross-audit`）。搭配流程上发现一处**真实断链**——
+消费侧有两个开发插件，生产侧却只认一个：
+
+```
+消费侧  ddp: <项目>/.data-dev/mock/kb/index.json       ← 齐备（tests/test_kb_contract.py）
+        rtd: <项目>/.rtd/mock/kb/index.json            ← 齐备（rtd engine/core.py KnowledgeIndex）
+生产侧  sync._update_data_dev_index                    ← 写死 .data-dev，对实时项目一行都同步不进去
+```
+
+来源与依据（这是来源声明，不是验收结论）：
+
+- `engine/core/sync.py:202` 的路径写死；`tests/test_engine.py::ConsumerContractTests` 只建了
+  `.data-dev/` 形态的消费方；
+- 实时插件侧 `docs/kb-integration.md` 把「生产端支持 `.rtd/`」列在"还差什么"，
+  `knowledge/kb-index-contract.md` 写明"知识库插件的发布流程目前把索引固定同步到 `.data-dev/`"；
+- 用户 2026-10-13 指示（本条）。
+
+当前实现是否满足这个目标，由工作项的 acceptance 逐条核验；在核验通过前不视为已达成。
+
 # 让插件真正记录会话记忆（OpenViking session → commit → 记忆抽取） {#session-memory status=active}
 
 用户 2026-10-11 的问题："知识库插件为什么没有记录下来会话记忆，OpenViking 官网显示可以的"。

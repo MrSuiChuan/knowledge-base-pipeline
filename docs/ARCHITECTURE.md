@@ -116,6 +116,10 @@ repo 内任何内容变更。随后：远端推送（若启用，先于本地落
 add/commit/tag(kb-vN) → 本地 OV 镜像（写入 .kb/ov + 索引）→
 manifest/sync-state/hook-log 留证 →（可选）同步 data-development-plugin mock kb 索引。
 
+消费方同步按项目**已经初始化**的运行时目录判定，不写死一家：
+`.data-dev/mock/kb/index.json`（离线数开插件）或 `.rtd/mock/kb/index.json`（实时数开插件）。
+两个都没有时返回 `consumer_sync.ok=false` 并列出候选路径——发布本身不因此回滚，但结果必须可见。
+
 ## 8. 反哺（refresh）
 
 重新采集 → 与上一份快照 diff（BASIC_INFO/COLUMN_BASIC_INFO）→ 仅重写

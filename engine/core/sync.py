@@ -24,6 +24,14 @@ from typing import Any, Dict, List, Optional
 
 from . import audit, context, ov_remote
 
+# 消费方知识索引的候选位置（跨插件契约），按"谁先初始化就写给谁"的顺序探测：
+# `.data-dev/` = data-development-plugin（离线），`.rtd/` = realtime-data-plugin（实时）。
+# 两个开发插件的消费侧都只认 `knowledge.uri_prefix` 下的 uri，索引形状一致。
+CONSUMER_INDEX_CANDIDATES = (
+    Path(".data-dev") / "mock" / "kb" / "index.json",
+    Path(".rtd") / "mock" / "kb" / "index.json",
+)
+
 
 def _uri_prefix(config: Dict[str, Any]) -> str:
     prefix = str((config or {}).get("uri_root") or "viking://resources/").rstrip("/")
@@ -175,9 +183,12 @@ def publish(root: Path, domain: str, reason: str = "", consumer_root: Optional[P
     state["last_publish"] = {"version": version, "at": entry["at"], "reason": reason}
     context.save_state(root, state)
     consumer_sync: Optional[Dict[str, Any]] = None
-    if consumer_root is not None or context.load_config(root).get("consumer_data_dev_root"):
-        target = consumer_root or Path(context.load_config(root)["consumer_data_dev_root"])
-        consumer_sync = _update_data_dev_index(root, target, domain)
+    # 配置键仍叫 `consumer_data_dev_root`（既有配置写在它上面），但它现在表示
+    # "消费方项目根"，不再特指离线插件——写给哪个插件由 consumer_index_path 判定。
+    configured_consumer = context.load_config(root).get("consumer_data_dev_root")
+    if consumer_root is not None or configured_consumer:
+        target = consumer_root or Path(configured_consumer)
+        consumer_sync = _sync_consumer_index(root, target, domain)
         # 不把消费方同步失败当成发布失败：git 提交与 OV 同步确实成功了，为此回滚只会
         # 制造第二个 commit。但它必须**可见**——原来这个返回值被直接丢掉，消费方还没
         # 初始化时同步一行都没做，调用方却只看到 ok:true（实测）。
@@ -197,11 +208,30 @@ def _log_hook(root: Path, event: str, payload: Dict[str, Any]) -> None:
         handle.write(json.dumps({"event": event, "at": context.utcnow(), **payload}, ensure_ascii=False) + "\n")
 
 
-def _update_data_dev_index(root: Path, consumer_root: Path, domain: str) -> Dict[str, Any]:
-    """把发布结果同步给 data-development-plugin 的 mock 知识库索引（跨插件契约）。"""
-    kb_index = consumer_root / ".data-dev" / "mock" / "kb" / "index.json"
-    if not kb_index.exists():
-        return {"ok": False, "reason": f"consumer 无 data-development-plugin kb 索引: {kb_index}"}
+def consumer_index_path(consumer_root: Path) -> Optional[Path]:
+    """消费方知识索引的位置——按宿主项目自己已经初始化到哪一步判定。
+
+    两个开发插件各写各的运行时目录：离线插件是 `.data-dev/`，实时插件是 `.rtd/`。
+    生产端**只写已存在的那一个**，不替消费方建目录（凭空造出一个没被任何引擎认领的
+    索引，等于制造一份没人读的假同步）；两个都没有时如实报出候选路径。
+
+    注意：目前两个消费方插件都没有"初始化时建空索引"这一步，所以第一次同步一定会
+    落到下面那条"没有索引"的分支。这是已知缺口，见台账观察项 O-4（不单方面改这条
+    由单测钉住的原则，等业主拍板改哪一侧）。
+    """
+    for relative in CONSUMER_INDEX_CANDIDATES:
+        candidate = consumer_root / relative
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _sync_consumer_index(root: Path, consumer_root: Path, domain: str) -> Dict[str, Any]:
+    """把发布结果同步给开发插件的 mock 知识库索引（跨插件契约）。"""
+    kb_index = consumer_index_path(consumer_root)
+    if kb_index is None:
+        candidates = "、".join(str(consumer_root / item) for item in CONSUMER_INDEX_CANDIDATES)
+        return {"ok": False, "reason": f"consumer 两个开发插件的 kb 索引都不存在: {candidates}"}
     index = context.load_json(kb_index, {"documents": []})
     known = {d.get("uri") for d in index.get("documents", [])}
     prefix = _uri_prefix(context.load_config(root))
@@ -224,4 +254,4 @@ def _update_data_dev_index(root: Path, consumer_root: Path, domain: str) -> Dict
         )
         added.append(uri)
     context.write_json(kb_index, index)
-    return {"ok": True, "added": added}
+    return {"ok": True, "index": str(kb_index), "added": added}

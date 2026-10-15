@@ -236,6 +236,45 @@ class ConsumerContractTests(KbBase):
         result = sync.publish(self.root, "user", reason="t")
         self.assertIsNone(result["consumer_sync"])
 
+    def test_syncs_into_a_realtime_plugin_project(self) -> None:
+        """第二个消费方：实时数开插件的运行时目录是 `.rtd/`，不是 `.data-dev/`。
+
+        改之前生产端只认 `.data-dev/mock/kb/index.json`，对着已初始化的实时项目
+        只会回 `consumer_sync.ok=false`——索引明明在，一行都同步不进去。
+        """
+        self._audited()
+        consumer = Path(tempfile.mkdtemp(prefix="rtdproj-"))
+        self._made.append(consumer)
+        kb_dir = consumer / ".rtd" / "mock" / "kb"
+        kb_dir.mkdir(parents=True)
+        context.write_json(kb_dir / "index.json", {"documents": []})
+
+        result = sync.publish(self.root, "user", reason="t", consumer_root=consumer)
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["consumer_sync"]["ok"], result["consumer_sync"])
+        self.assertEqual(Path(result["consumer_sync"]["index"]), kb_dir / "index.json")
+        docs = context.load_json(kb_dir / "index.json")["documents"]
+        self.assertTrue(docs, "发布后实时插件的索引里应当有表文档")
+        for doc in docs:
+            self.assertTrue(doc["uri"].startswith("viking://resources/"), doc["uri"])
+
+    def test_prefers_the_consumer_that_is_initialized(self) -> None:
+        """两个运行时目录都在时，各写一个都对——判定只看"哪一个已经存在"。"""
+        self._audited()
+        consumer = Path(tempfile.mkdtemp(prefix="bothproj-"))
+        self._made.append(consumer)
+        for relative in (".data-dev", ".rtd"):
+            kb_dir = consumer / relative / "mock" / "kb"
+            kb_dir.mkdir(parents=True)
+            context.write_json(kb_dir / "index.json", {"documents": []})
+        # 先只留 `.rtd/` 一个：判定应当落到它上面，而不是报"缺 .data-dev"
+        data_dev_index = consumer / ".data-dev" / "mock" / "kb" / "index.json"
+        data_dev_index.unlink()
+        result = sync.publish(self.root, "user", reason="t", consumer_root=consumer)
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["consumer_sync"]["ok"], result["consumer_sync"])
+        self.assertIn(".rtd", result["consumer_sync"]["index"])
+
 
 class AuditTests(KbBase):
     def test_audit_passes_clean_knowledge(self) -> None:
@@ -334,6 +373,35 @@ class PublishGateTests(KbBase):
         decision = gates.decide_file_write(str(rule_path), self.root)
         self.assertEqual(decision.gate, "rules_direct_write_guard")
         self.assertTrue(decision.blocked())
+
+    def test_stricter_audit_satisfies_lower_configured_level(self) -> None:
+        """KBP-061：审计级别按「不低于配置要求」判——更严的证据不该被判废。
+
+        现场（2026-10-14 插件测试用例 K-18）：配置 audit_level=standard、审计跑了
+        --level strict，旧实现按"必须完全相等"判，于是更严的审计反被 kb_publish_guard 拦死，
+        理由还是「strict != standard」，用户只会以为配置写错了。
+        """
+        self._generate()
+        cfg = context.load_config(self.root)
+        cfg["audit_level"] = "standard"
+        context.write_json(context.config_path(self.root), cfg)
+        audit.run_audit(self.root, "user", mode="publish", level="strict")
+
+        decision = gates.decide_cli_command("kbp.py publish --domain user --reason x", self.root)
+        self.assertFalse(decision.blocked(), decision)
+        result = sync.publish(self.root, "user", reason="stricter-audit")
+        self.assertTrue(result["ok"], result)
+
+    def test_lower_audit_than_configured_is_still_blocked(self) -> None:
+        """反方向不变：配置要 strict、审计只跑了 standard → 仍然拦（证据低于要求）。"""
+        self._generate()
+        cfg = context.load_config(self.root)
+        cfg["audit_level"] = "strict"
+        context.write_json(context.config_path(self.root), cfg)
+        audit.run_audit(self.root, "user", mode="publish", level="standard")
+        decision = gates.decide_cli_command("kbp.py publish --domain user --reason x", self.root)
+        self.assertTrue(decision.blocked())
+        self.assertIn("低于配置要求", decision.reason)
 
 
 class ProposalTests(KbBase):
@@ -504,6 +572,59 @@ class HardeningTests(KbBase):
         for uri in uris[:1]:
             rel = uri[len(prefix):]
             self.assertTrue((context.ov_dir(self.root) / rel).is_file())
+
+
+class SetupIdempotencyTest(unittest.TestCase):
+    """KBP-059：`setup` 必须幂等——重跑只补目录，不能覆盖用户配置与运行时状态。
+
+    现场（2026-10-14 插件测试用例 K-02）：旧实现无条件重写配置与机器状态两份文件，
+    用户填的 owners / ov / sources 与 last_audit / last_publish / seq 会被静默清空，
+    发布版本号还可能因此重复。setup 是技能文档里让 agent 反复跑的入口，
+    「再跑一次就好」这条修复路径不能带副作用。
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        context.ensure_app_dir(self.root, mode="mock", domain="user")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_rerun_keeps_user_config(self) -> None:
+        cfg = context.load_config(self.root)
+        cfg["owners"]["wangwu"] = "王五"
+        cfg["audit_level"] = "standard"
+        cfg["ov"]["memory_enabled"] = True
+        context.write_json(context.config_path(self.root), cfg)
+
+        context.ensure_app_dir(self.root, mode="mock", domain="user")
+
+        again = context.load_config(self.root)
+        self.assertEqual("standard", again["audit_level"])
+        self.assertEqual("王五", again["owners"]["wangwu"])
+        self.assertTrue(again["ov"]["memory_enabled"], "记忆开关被重跑 setup 关掉是最贵的一种覆盖")
+
+    def test_rerun_keeps_runtime_state(self) -> None:
+        state = context.load_state(self.root)
+        state["last_audit"] = {"audit_id": "kb-audit-1", "passed": True}
+        state["last_publish"] = {"version": "kb-v3", "at": "2026-10-01T00:00:00Z", "reason": "v3"}
+        state["seq"]["publish"] = 3
+        context.save_state(self.root, state)
+
+        context.ensure_app_dir(self.root, mode="mock", domain="user")
+
+        again = context.load_state(self.root)
+        self.assertEqual("kb-v3", (again.get("last_publish") or {}).get("version"))
+        self.assertEqual(3, (again.get("seq") or {}).get("publish"))
+
+    def test_first_run_still_seeds_defaults(self) -> None:
+        fresh = Path(self._tmp.name) / "fresh"
+        context.ensure_app_dir(fresh, mode="live", domain="common")
+        cfg = context.load_config(fresh)
+        self.assertEqual("live", cfg["mode"])
+        self.assertEqual("common", cfg["domain"])
+        self.assertTrue((fresh / ".kb" / "repo" / "proposals").is_dir())
 
 
 if __name__ == "__main__":

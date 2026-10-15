@@ -135,10 +135,21 @@ def verb_setup(flags: Dict[str, str]) -> None:
     mode = flags.get("mode", "mock")
     d = flags.get("domain", "user")
     context.ensure_app_dir(ROOT, mode=mode, domain=d)
+    # 报"落盘后的实际配置"，不报这次请求的参数：重跑 setup 不再改动已有 config.json，
+    # 把请求参数当结果报会与事实不符。
+    config = context.load_config(ROOT)
     # 版本控制层的能力缺失必须在**安装期**说出来。旧实现把 _git_init 的结果丢掉，
     # git 不可用时 setup 照样报 ok，用户以为知识库已经版本化了，要到发布才被拦。
     vcs = context.vcs_status(ROOT)
-    emit({"ok": True, "root": str(ROOT), "mode": mode, "domain": d, "vcs": vcs})
+    emit(
+        {
+            "ok": True,
+            "root": str(ROOT),
+            "mode": config.get("mode"),
+            "domain": config.get("domain"),
+            "vcs": vcs,
+        }
+    )
 
 
 def verb_snapshot(flags: Dict[str, str]) -> None:

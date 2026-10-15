@@ -93,8 +93,9 @@ uri_root。
 - 上游：本插件发布到 `viking://resources/`；
 - 消费：data-development-plugin 的 SDS 阶段（kb_scope_guard 只允许
   `knowledge.uri_prefix`）；
-- 联调：`/kb-publish --consumer-root <data-dev 项目根>` 会把新表文档同步进该
-  项目的 `.data-dev/mock/kb/index.json`，mock 模式下 SDS 立即能搜到。
+- 联调：`/kb-publish --consumer-root <开发插件项目根>` 会把新表文档同步进该项目的知识索引
+  （`.data-dev/mock/kb/index.json` 或 `.rtd/mock/kb/index.json`，按已存在的那个写入），
+  mock 模式下消费侧立即能搜到。
 
 ## 5. 建议演进
 

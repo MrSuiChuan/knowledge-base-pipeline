@@ -255,6 +255,14 @@ def run_audit(root: Path, domain: str, mode: str = "publish", level: str = "stri
     return payload
 
 
+# 审计级别的严格程度排序：未登记的一律按最低（0）算，免得"没见过的级别"被当合格证据。
+_LEVEL_STRICTNESS: Dict[str, int] = {"standard": 1, "strict": 2}
+
+
+def _strictness(level: Any) -> int:
+    return _LEVEL_STRICTNESS.get(str(level or "").strip().lower(), 0)
+
+
 def audit_fresh_enough(root: Path) -> Dict[str, Any]:
     """publish 门用的最近审计检查：存在、passed、mode=publish、strict，且晚于最近内容变更。"""
     audit = context.latest_audit(root)
@@ -265,8 +273,14 @@ def audit_fresh_enough(root: Path) -> Dict[str, Any]:
     if audit.get("mode") != "publish":
         return {"ok": False, "reason": f"最近审计不是 publish 模式（{audit.get('mode')}），先 kbp audit --mode publish"}
     required_level = context.load_config(root).get("audit_level", "strict")
-    if audit.get("audit_level") != required_level:
-        return {"ok": False, "reason": f"最近审计级别 {audit.get('audit_level')} != 配置要求 {required_level}"}
+    # 按「不低于配置要求」判，不按"必须完全相等"判：配置 standard 而审计跑了 strict，
+    # 证据比要求的更严，判它不合格等于把更严的证据作废（2026-10-14 测试用例 K-18 实测）。
+    if _strictness(audit.get("audit_level")) < _strictness(required_level):
+        return {
+            "ok": False,
+            "reason": f"最近审计级别 {audit.get('audit_level')} 低于配置要求 {required_level}："
+                      f"重跑 kbp audit --mode publish --level {required_level}",
+        }
     audit_path = context.repo_dir(root) / f".kb-audit-{audit.get('audit_id')}.json"
     if not audit_path.is_file():
         return {"ok": False, "reason": "审计文件丢失，请重跑 audit"}

@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -43,6 +45,74 @@ for _stream in (sys.stdout, sys.stderr):
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / ".codex-plugin" / "plugin.json"
 MARKETPLACE = Path.home() / ".agents" / "plugins" / "marketplace.json"
+CACHE_ROOT = Path.home() / ".codex" / "plugins" / "cache"
+# 宿主会把 commands/ 迁移成一份 source-command-<name> 技能放在这里。本插件已自带同功能的
+# kbp-* 技能（skills/ 由同一批 commands/ 生成），两份同时在场只会让技能选择变模糊
+# （实测：一个会话里 kbp-publish 与 source-command-publish 同时出现在可用技能列表里）。
+MIGRATED_SKILLS_DIR = ".codex-plugin/migrated-command-skills"
+# 宿主安装是**整棵工作树**拷贝（不是 git 的发布面），所以 .gitignore 排除的本机产物
+# 会一起进缓存：实测 kbp 缓存 22.5 MB（.tmp 17.6 MB、.awr 1.6 MB），而发布面本身约 1 MB。
+# 这些目录插件运行时一个都不用——真正要用的是 `<用户项目>/.kb/`，由 /kb-setup 现建。
+CACHE_LOCAL_ARTIFACTS = (
+    ".tmp",
+    ".awr",
+    "logs",
+    "metastore_db",
+    ".pytest_cache",
+    "derby.log",
+    "spark-warehouse",
+    "warehouse",
+)
+
+
+def drop_migrated_skills(version: str, plugin_name: str) -> list:
+    """重装后清掉宿主生成的迁移副本，避免同一功能两份技能同时被加载。"""
+    removed: list = []
+    for cache_dir in CACHE_ROOT.glob(f"*/{plugin_name}/{version}"):
+        stale = cache_dir / MIGRATED_SKILLS_DIR
+        if not stale.is_dir():
+            continue
+        _rmtree(stale)
+        removed.append(str(stale))
+    return removed
+
+
+def _force_remove(function, path, _exc) -> None:
+    """Windows 上只读文件会让 rmtree 报 WinError 5：先加写权限再删。
+
+    实测来源：`.tmp/ci-final-*` 是嵌套的 git 克隆，`.git/objects/**` 全是只读。
+    """
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        function(path)
+    except OSError:
+        pass
+
+
+def _rmtree(target: Path) -> None:
+    kwargs = {"onexc": _force_remove} if sys.version_info >= (3, 12) else {"onerror": _force_remove}
+    shutil.rmtree(target, **kwargs)
+
+
+def prune_cache_artifacts(version: str, plugin_name: str) -> tuple:
+    """把本机产物从**刚装进缓存的那份副本**里删掉，只保留插件的发布面。
+
+    只动缓存副本，不动源码仓库：仓库里的 .tmp/ 是台账引用过的实验留档，删它等于毁证。
+    """
+    removed: list = []
+    freed = 0
+    for cache_dir in CACHE_ROOT.glob(f"*/{plugin_name}/{version}"):
+        for name in CACHE_LOCAL_ARTIFACTS:
+            target = cache_dir / name
+            if target.is_dir():
+                freed += sum(item.stat().st_size for item in target.rglob("*") if item.is_file())
+                _rmtree(target)
+                removed.append(str(target))
+            elif target.is_file():
+                freed += target.stat().st_size
+                target.unlink()
+                removed.append(str(target))
+    return removed, freed
 
 
 def new_version(current: str, token: str) -> str:
@@ -149,6 +219,18 @@ def main() -> int:
     if proc.returncode != 0:
         print((proc.stderr or "").strip(), file=sys.stderr)
         return proc.returncode
+
+    removed = drop_migrated_skills(target, plugin_name)
+    if removed:
+        print("已清掉宿主生成的迁移技能副本（与自带 kbp-* 技能重复）：")
+        for item in removed:
+            print(f"  - {item}")
+
+    pruned, freed = prune_cache_artifacts(target, plugin_name)
+    if pruned:
+        print(f"已从缓存副本清掉本机产物（发布面之外，释放 {freed / 1024 / 1024:.1f} MB）：")
+        for item in pruned:
+            print(f"  - {item}")
 
     print()
     print("装好了。**新开一个线程**再用，宿主只在新会话里加载新版本。")

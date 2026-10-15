@@ -208,11 +208,16 @@ def load_config(root: Path) -> Dict[str, Any]:
 def ensure_app_dir(start: Optional[Path] = None, mode: str = "mock", domain: str = "user") -> Path:
     root = (start or Path.cwd()).resolve()
     app = ensure_dir(root / APP_DIR_NAME)
-    cfg = default_config(domain)
-    cfg["mode"] = mode if mode in ("mock", "live") else "mock"
-    cfg["created_at"] = utcnow()
-    cfg["updated_at"] = utcnow()
-    write_json(config_path(root), cfg)
+    # 幂等：setup 是可反复跑的入口，重跑只补目录，**不覆盖**已有的 config.json 与 _state.json。
+    # 旧实现无条件重写这两份文件，会把用户填的 owners / ov / sources 与
+    # last_audit / last_publish / seq 静默清空（版本号还可能因此重复）——
+    # 2026-10-14 的插件测试实测踩到（用例 K-02）。
+    if not config_path(root).is_file():
+        cfg = default_config(domain)
+        cfg["mode"] = mode if mode in ("mock", "live") else "mock"
+        cfg["created_at"] = utcnow()
+        cfg["updated_at"] = utcnow()
+        write_json(config_path(root), cfg)
     ensure_dir(app / MOCK_DIR)
     ensure_dir(app / RUNTIME_DIR / "snapshots")
     ensure_dir(app / RUNTIME_DIR / "hook-logs")
@@ -231,7 +236,9 @@ def ensure_app_dir(start: Optional[Path] = None, mode: str = "mock", domain: str
             "# knowledge-base-plugin: 审计/待审/驳回产物不入库（协作时需重跑）\n.kb-audit-*.json\n.kb-pending-review/\n.kb-rejected/\n.kb-sync-state.json\n",
         )
     _git_init(repo)
-    write_json(root / APP_DIR_NAME / STATE_FILE, default_state(domain))
+    state_file = root / APP_DIR_NAME / STATE_FILE
+    if not state_file.is_file():
+        write_json(state_file, default_state(domain))
     return root
 
 

@@ -105,14 +105,26 @@ def memory_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     return settings
 
 
+DISABLED_REASON = (
+    "会话记忆未启用：在 .kb/config.json 的 ov 段设 \"memory_enabled\": true 后再试"
+    "（抽取会消耗模型配额，详见 docs/session-memory.md）"
+)
+
+
+def disabled_error() -> "MemoryError":
+    return MemoryError("memory_disabled", DISABLED_REASON)
+
+
 def require_enabled(settings: Dict[str, Any]) -> Dict[str, Any]:
     if not settings.get("enabled"):
-        raise MemoryError(
-            "memory_disabled",
-            "会话记忆未启用：在 .kb/config.json 的 ov 段设 \"memory_enabled\": true 后再试"
-            "（抽取会消耗模型配额，详见 docs/session-memory.md）",
-        )
+        raise disabled_error()
     return settings
+
+
+def is_enabled(config: Dict[str, Any]) -> bool:
+    """只读「开没开」这一步，不解析传输与密钥来源。"""
+    ov = config.get("ov") if isinstance(config.get("ov"), dict) else {}
+    return bool(ov.get("memory_enabled", False))
 
 
 def state_dir(root: Path) -> Path:
@@ -243,9 +255,16 @@ class MemoryClient(ov_remote.RemoteClient):
 
 
 def client_for(root: Path) -> "MemoryClient":
-    """按项目配置建客户端；未启用 / 配置缺失都在这里拦下。"""
+    """按项目配置建客户端；未启用 / 配置缺失都在这里拦下。
+
+    判断顺序有意为之：先「开没开」，再「地址密钥齐不齐」。
+    关着记忆的用户最先该看到的是「没启用」，而不是缺 ov.url 或「先跑 memory begin」
+    ——后两条都把人指向错误动作（2026-10-14 测试用例 K-22）。
+    """
     config = context.load_config(root)
-    settings = require_enabled(memory_settings(config))
+    if not is_enabled(config):
+        raise disabled_error()
+    settings = memory_settings(config)
     return MemoryClient(settings)
 
 
@@ -276,10 +295,12 @@ def begin(root: Path, session_id: Optional[str] = None, client: Optional[MemoryC
 
 
 def append(root: Path, role: str, content: str, client: Optional[MemoryClient] = None) -> Dict[str, Any]:
+    # 先解析配置（未启用 / 缺地址在这里就报），再判会话：否则关着记忆的用户
+    # 会先被告知"先跑 memory begin"，而 begin 又会回一句"没启用"——门指错了方向。
+    client = client or client_for(root)
     session_id = current_session(root)
     if not session_id:
         raise MemoryError("memory_no_session", "还没有绑定会话：先跑 kbp.py memory begin")
-    client = client or client_for(root)
     result = client.add_message(session_id, role, content)
     state = load_state(root)
     state["add_count"] = int(state.get("add_count") or 0) + 1
@@ -289,10 +310,10 @@ def append(root: Path, role: str, content: str, client: Optional[MemoryClient] =
 
 
 def append_many(root: Path, messages: List[Dict[str, Any]], client: Optional[MemoryClient] = None) -> Dict[str, Any]:
+    client = client or client_for(root)
     session_id = current_session(root)
     if not session_id:
         raise MemoryError("memory_no_session", "还没有绑定会话：先跑 kbp.py memory begin")
-    client = client or client_for(root)
     result = client.add_messages(session_id, messages)
     state = load_state(root)
     state["add_count"] = int(state.get("add_count") or 0) + len(messages)
@@ -340,10 +361,10 @@ def commit(
     client: Optional[MemoryClient] = None,
 ) -> Dict[str, Any]:
     """归档 + 触发记忆抽取。留证写进 .kb/runtime/memory/commit-<ts>.json。"""
+    client = client or client_for(root)
     session_id = current_session(root)
     if not session_id:
         raise MemoryError("memory_no_session", "还没有绑定会话：先跑 kbp.py memory begin")
-    client = client or client_for(root)
     if keep_recent_count is None:
         keep_recent_count = int(getattr(client, "keep_recent_count", 0) or 0)
     readiness = client.check_ready()
@@ -403,10 +424,10 @@ def commit(
 
 def status(root: Path, client: Optional[MemoryClient] = None) -> Dict[str, Any]:
     """回读服务端会话状态（message_count / memories_extracted）。"""
+    client = client or client_for(root)
     session_id = current_session(root)
     if not session_id:
         raise MemoryError("memory_no_session", "还没有绑定会话：先跑 kbp.py memory begin")
-    client = client or client_for(root)
     server = client.get_session(session_id)
     state = load_state(root)
     return {
@@ -426,9 +447,9 @@ def mark_used(
     skill: Optional[Dict[str, Any]] = None,
     client: Optional[MemoryClient] = None,
 ) -> Dict[str, Any]:
+    client = client or client_for(root)
     session_id = current_session(root)
     if not session_id:
         raise MemoryError("memory_no_session", "还没有绑定会话：先跑 kbp.py memory begin")
-    client = client or client_for(root)
     result = client.record_used(session_id, contexts=contexts, skill=skill)
     return {"ok": True, "session_id": session_id, "server": result}

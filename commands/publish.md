@@ -22,14 +22,17 @@ py -3 .kb/engine/kbp.py publish --domain <domain> --reason "<发布说明>"
 3. 留证：`.kb-manifest.json`（随库提交，记录 `ov_sync=remote|local-mirror` 与远端
    推送/校验计数）、`.kb-sync-state.json`、hook 日志。
 
-可选：`--consumer-root <data-development-plugin 项目根>` 会把新表文档同步进该项目的
-`.data-dev/mock/kb/index.json`，让 SDS 阶段直接能找到这张表。
+可选：`--consumer-root <开发插件项目根>` 会把新表文档同步进该项目的知识索引，
+让它的设计/定位阶段直接能找到这张表。两个开发插件各写各的运行时目录，生产端按
+**已经存在的那个**判定：`.data-dev/mock/kb/index.json`（离线数开）或
+`.rtd/mock/kb/index.json`（实时数开）。
 
 **这一步有前置条件**：那个 `index.json` 必须**已经存在**（数开项目跑过 `/setup` 并用过一次
 知识客户端才会建）。没建的话同步一行都不会做——所以返回值里带了 `consumer_sync`：
 
 ```jsonc
-"consumer_sync": {"ok": false, "reason": "consumer 无 data-development-plugin kb 索引: …"}
+"consumer_sync": {"ok": true, "index": "<实际写入的索引路径>", "added": ["viking://resources/…"]}
+"consumer_sync": {"ok": false, "reason": "consumer 两个开发插件的 kb 索引都不存在: …"}
 ```
 
 **看到 `ok: false` 就要告诉用户**"先去那个数开项目跑 `/setup`，再重新 `/kb-publish` 一次"，

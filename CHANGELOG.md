@@ -4,6 +4,33 @@
 
 <!-- 下一条改动写在上面这一节 -->
 
+### Fixed（插件测试跑出来的三处真问题，2026-10-14）
+
+用一份 119 条用例的测试实验台逐条跑本插件的七个环节与 hook 门控，三处不通过：
+
+- **`setup` 幂等**（`engine/core/context.py`、`engine/kbp.py`）：旧实现无条件重写
+  `.kb/config.json` 与机器状态文件，用户填的 owners / ov / sources 与
+  `last_audit` / `last_publish` / `seq` 会被静默清空（发布版本号还可能因此重复）。
+  setup 是技能文档里让 agent 反复跑的入口，「再跑一次就好」不能带副作用；
+  现在只在缺文件时写入。`setup` 的输出也改成报**落盘后的实际配置**，
+  不再把这次请求的参数当成结果；
+- **审计级别按「不低于配置要求」判**（`engine/core/audit.py`）：配置 `audit_level=standard`
+  而审计跑了 `--level strict` 时，旧实现按「必须完全相等」判，更严的审计反被
+  `kb_publish_guard` 拦死，理由还是「strict != standard」。现在 strict 满足 standard，
+  反方向（审计低于要求）照旧拦；
+- **记忆命令先报「没启用」**（`engine/core/ov_memory.py`）：未启用时
+  `memory status` / `commit` / `mark_used` 先回的是「先跑 memory begin」，
+  而 begin 又会回「没启用」——门指错了方向。现在配置门（未启用 / 缺地址）先于会话门。
+
+回归用例：`tests/test_engine.py::SetupIdempotencyTest`、
+`PublishGateTests::test_stricter_audit_satisfies_lower_configured_level`（与反方向一条）、
+`tests/test_memory.py::DisabledPrecedenceTest`。
+
+另有一条**没有单方面改**的缺口记在测试台账里（观察项 O-4）：消费方开发插件项目里
+没人创建 `.rtd/mock/kb/index.json` / `.data-dev/mock/kb/index.json`，而生产端按设计
+「只写已存在的索引」，所以首次 `publish --consumer-root` 必然报 `consumer_sync.ok=false`。
+改哪一侧（消费端初始化时建空索引 / 生产端首次 seed）需要业主拍板。
+
 ### Changed（README 重排：按"你想干的事"分层）
 
 原来的 README 把"30 秒跑通"和"改完代码怎么让宿主加载新版本"挤在同一层，文件里塞了大量

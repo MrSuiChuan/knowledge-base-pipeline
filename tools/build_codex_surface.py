@@ -81,7 +81,9 @@ def read(path: Path) -> str:
 
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    # newline="\n" 必须显式给：Windows 文本模式会把 \n 翻成 \r\n，与 `.gitattributes`
+    # 规定的 LF 不一致，生成物会变成"显示已改、diff 却是空"的纯行尾噪声（实测踩过）。
+    path.write_text(text, encoding="utf-8", newline="\n")
     print("wrote", path.relative_to(ROOT).as_posix())
 
 

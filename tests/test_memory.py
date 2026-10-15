@@ -342,5 +342,37 @@ class SessionStartWiringTests(MemoryBase):
         self.assertIn("s-from-hook", note)
 
 
+class DisabledPrecedenceTest(unittest.TestCase):
+    """KBP-060：关着记忆时，命令层要先说「没启用」，而不是先说「没有会话」。
+
+    现场（2026-10-14 插件测试用例 K-22）：未启用时 `memory status` 回的是
+    「先跑 memory begin」，而 begin 又会回「没启用」——门指错了方向，
+    用户照着提示跑一遍还是错的。
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        context.ensure_app_dir(self.root, mode="live", domain="user")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_status_reports_disabled_first(self) -> None:
+        with self.assertRaises(ov_memory.MemoryError) as ctx:
+            ov_memory.status(self.root)
+        self.assertEqual("memory_disabled", ctx.exception.gate)
+
+    def test_commit_reports_disabled_first(self) -> None:
+        with self.assertRaises(ov_memory.MemoryError) as ctx:
+            ov_memory.commit(self.root)
+        self.assertEqual("memory_disabled", ctx.exception.gate)
+
+    def test_mark_used_reports_disabled_first(self) -> None:
+        with self.assertRaises(ov_memory.MemoryError) as ctx:
+            ov_memory.mark_used(self.root, contexts=["viking://resources/x.md"])
+        self.assertEqual("memory_disabled", ctx.exception.gate)
+
+
 if __name__ == "__main__":
     unittest.main()

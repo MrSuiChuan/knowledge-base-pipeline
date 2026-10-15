@@ -58,9 +58,10 @@ Apache-2.0 · Python 3.9+ · mock 模式开箱即用
 - **消费闭环**：`viking://resources/` 被 data-development-plugin 的 SDS 找表与下游测试消费；
 - **反哺闭环**：元数据漂移反向拽新知识（`/kb-refresh`），实战沉淀正向养厚知识（`/kb-propose`）。
 
-本插件是 **data-development-plugin 的上游**：发布到 `viking://resources/`，SDS 阶段只消费该前缀。
-`/kb-publish --consumer-root <data-dev 项目根>` 可在 mock 模式下把新表文档直接同步进它的
-`.data-dev/mock/kb/index.json`。
+本插件是两个开发插件（离线 data-development-plugin、实时 realtime-data-plugin）的**上游**：
+发布到 `viking://resources/`，两侧的消费端都只消费该前缀。
+`/kb-publish --consumer-root <开发插件项目根>` 可在 mock 模式下把新表文档直接同步进它的知识索引
+（`.data-dev/mock/kb/index.json` 或 `.rtd/mock/kb/index.json`，按已存在的那个写入）。
 
 ## 快速开始
 
