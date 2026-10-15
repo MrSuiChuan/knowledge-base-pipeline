@@ -254,7 +254,9 @@ def copy_snapshot(dest: Path) -> Dict[str, int]:
             shutil.copy2(src, target)  # 二进制/非 UTF-8：原样复制
             continue
         cleaned, counts = sanitize(text)
-        target.write_text(cleaned, encoding="utf-8", newline="")
+        # 不用 write_text(newline=)：Python 3.10+ 才有；下限 3.9 上会 TypeError
+        with open(target, "w", encoding="utf-8", newline="") as handle:
+            handle.write(cleaned)
         for rule, n in counts.items():
             total[rule] = total.get(rule, 0) + n
     return total

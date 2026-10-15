@@ -51,11 +51,10 @@ def build_manifest() -> dict:
 
 def main() -> int:
     manifest = build_manifest()
-    (ENGINE / ".engine-manifest.json").write_text(
-        json.dumps({"schema_version": 1, "files": manifest}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    # 固定 LF，且不用 `Path.write_text(..., newline=...)`：那是 Python 3.10+ 参数，
+    # 在声明的下限 3.9 上直接 TypeError（与 data-development-plugin 同源的坑）。
+    with open(ENGINE / ".engine-manifest.json", "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps({"schema_version": 1, "files": manifest}, ensure_ascii=False, indent=2) + "\n")
     print(f"manifest written: {len(manifest)} files")
     return 0
 

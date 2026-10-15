@@ -81,9 +81,14 @@ def read(path: Path) -> str:
 
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    # newline="\n" 必须显式给：Windows 文本模式会把 \n 翻成 \r\n，与 `.gitattributes`
-    # 规定的 LF 不一致，生成物会变成"显示已改、diff 却是空"的纯行尾噪声（实测踩过）。
-    path.write_text(text, encoding="utf-8", newline="\n")
+    # 固定 LF：Windows 文本模式会把 \n 翻成 \r\n，与 `.gitattributes` 规定的 LF 不一致，
+    # 生成物会变成"显示已改、diff 却是空"的纯行尾噪声（实测踩过）。
+    #
+    # 用 open() 而不是 `Path.write_text(..., newline=...)`：后者是 Python 3.10 才有的
+    # 参数，本仓库声明支持 3.9（README + CI 矩阵），3.9 上会
+    # `TypeError: write_text() got an unexpected keyword argument 'newline'`。
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
     print("wrote", path.relative_to(ROOT).as_posix())
 
 

@@ -185,6 +185,34 @@ class PythonFloorTests(unittest.TestCase):
             f"以下文件用了 Python {floor[0]}.{floor[1]} 解析不了的语法：\n  " + "\n  ".join(failures),
         )
 
+    def test_sources_avoid_apis_newer_than_the_declared_floor(self) -> None:
+        """下限只查语法不够：3.10 才有的**参数**在 3.9 上照样 TypeError。
+
+        现场（2026-10-15）：`Path.write_text(..., newline=...)` 是 Python 3.10 新增的
+        参数，3.9 上会 `TypeError`——同源问题在 data-development-plugin 的公开仓
+        （run 121a8bc）把 CI 的「生成物必须与仓库一致」步骤照红了，而 3.12 腿与本地全绿。
+        语法检查看不到这一类，所以这里有第二条守卫。
+        """
+        floor = readme_python_floor()
+        banned = (
+            ((3, 10), "Path.write_text(..., newline=...)", "write_text", "newline"),
+        )
+        active = [item for item in banned if item[0] > floor]
+        self.assertTrue(active, "下限已不低于清单里的最低版本：请连同守卫清单一起更新")
+        hits = []
+        for path in source_files():
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except SyntaxError:
+                continue  # 语法问题由上一个测试报，不在这里重复
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                    continue
+                for _minimum, label, attr, kwarg in active:
+                    if node.func.attr == attr and any(kw.arg == kwarg for kw in node.keywords):
+                        hits.append(f"{path.relative_to(ROOT_REPO).as_posix()}:{node.lineno} 用了 {label}")
+        self.assertEqual([], hits, "下限 Python 上会直接报错：\n  " + "\n  ".join(hits))
+
 
 class EngineManifestTests(unittest.TestCase):
     def test_manifest_matches_current_engine_files(self) -> None:
