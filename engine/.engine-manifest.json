@@ -6,7 +6,7 @@
     "core/audit.py": "8599eaade673e3c3fe541cf4433320e374621773c6e8f69422a93a2a9b4ba575",
     "core/context.py": "2f3a700b92de4aec719673abcfd9c37ba4995cce6e14023fe2bdc997bb799eb4",
     "core/gates.py": "b9b6b58d2ab735c29c9772cb58e956ff169590b2263dd6ed156fa6d13d6cda0c",
-    "core/ov_memory.py": "8fd1cee49f4032ba41959b45bc48547d77122e55fa2b3f2918e415bf8952fcc3",
+    "core/ov_memory.py": "aadedec22453d0445859aaff250068e257e8f959bd94ebf8b16ae9bc48d4116e",
     "core/ov_remote.py": "718560a9204ee1ae30bf9deb8a820869b2d210b9c0e64968ea2fbaa7a9ffadc3",
     "core/proposals.py": "feaaa395e35766f3b5db8092c3f53007edcb9d3185233a329d40b99d4f7af532",
     "core/render.py": "051a8d46df5b75a2b53a6b3c5c91698e566c75d2c8812fd132ede90788dc8e1e",

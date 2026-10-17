@@ -4,6 +4,15 @@
 
 <!-- 下一条改动写在上面这一节 -->
 
+### Fixed（真实 Codex rollout 解析：input_text / output_text，2026-10-17）
+
+- **`engine/core/ov_memory.py`**：文本块类型现在同时接受 `text` / `input_text` / `output_text`。
+  只认 `text` 时，当前会话的 rollout（142 条 `message`，用户 18 / 助手 110）解析结果为 **0 轮**，
+  自动捕获在真实会话上等于失效；官方样例里的 `text` 只是其中一种写法。
+  回归：`tests/test_memory_hooks.py::CaptureTests::test_parse_accepts_real_codex_part_types`。
+- 已用真实会话验证：修复后同一份 rollout 解析出 129 轮，`userpromptsubmit` 对该项目返回
+  `additionalContext`（1176 字符，命中线上回忆）。
+
 ### Tested（会话记忆全流程端到端测试，2026-10-17）
 
 - **线上实例** `<openviking-host>:1933`（OpenViking 0.4.11）：`kb-e2e-lab` **20/20 PASS**

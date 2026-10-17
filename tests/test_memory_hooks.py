@@ -166,10 +166,10 @@ class MemoryHookBase(unittest.TestCase):
     def write_rollout(self, extra: bool = False) -> Path:
         lines = [
             {"type": "response_item", "payload": {"type": "message", "role": "user",
-                                                  "content": [{"type": "text", "text": "记住：user_id 是 STRING。"}]}},
+                                                  "content": [{"type": "input_text", "text": "记住：user_id 是 STRING。"}]}},
             {"type": "response_item", "payload": {"type": "function_call", "name": "shell", "arguments": "{}"}},
             {"type": "response_item", "payload": {"type": "message", "role": "assistant",
-                                                  "content": [{"type": "text", "text": "好的，已记下。"}]}},
+                                                  "content": [{"type": "output_text", "text": "好的，已记下。"}]}},
         ]
         if extra:
             lines.append({"type": "event_msg", "payload": {"type": "user_message",
@@ -184,6 +184,13 @@ class CaptureTests(MemoryHookBase):
         turns, ok = ov_memory.read_transcript_turns(self.write_rollout())
         self.assertTrue(ok)
         self.assertEqual(["user", "assistant"], [t["role"] for t in turns])
+
+    def test_parse_accepts_real_codex_part_types(self) -> None:
+        """真实 rollout 的文本块是 input_text/output_text，不是 text（2026-10-17 实测）。"""
+        turns, ok = ov_memory.read_transcript_turns(self.write_rollout())
+        self.assertTrue(ok)
+        self.assertIn("user_id", turns[0]["content"])
+        self.assertIn("已记下", turns[1]["content"])
 
     def test_capture_advances_watermark_and_dedupes(self) -> None:
         first = ov_memory.capture_from_transcript(self.root, str(self.write_rollout()), "codex-1")

@@ -61,6 +61,7 @@
 | 编号 | 现象 | 处理 |
 | --- | --- | --- |
 | KBP-HOOK-009 | 在未初始化目录里对 `--root` 指向的已初始化项目执行记忆命令，被 `setup_guard` 误拦 | 已修：`engine/core/gates.py` 解析命令里的 `--root`；回归 `CliInvocationTests::test_root_flag_reaches_an_initialized_project`（提交 `4cb33d8`） |
+| KBP-HOOK-010 | 真实 Codex rollout 的文本块是 `input_text`/`output_text`，解析器只认 `text` → 真实会话解析出 0 轮，自动捕获等于失效 | 已修：`ov_memory._text_parts` 接受三种类型；回归 `test_parse_accepts_real_codex_part_types`；用当前会话 rollout 实测解析出 129 轮 |
 | LAB-001 | 实验台捕获变量按用例隔离，连续流程（A-02→A-04→A-05→A-10）拿不到同一会话 id | 已修：`kb-e2e-lab` 运行器改为同一次运行内共享捕获值 |
 | LAB-002 | `cases` 目录被误建为文件，导致用例加载失败 | 已修：重建为目录（仅实验台，不影响插件） |
 

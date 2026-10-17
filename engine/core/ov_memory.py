@@ -494,15 +494,21 @@ def derive_ov_session_id(codex_session_id: str) -> str:
     return "cx-" + raw
 
 
+TEXT_PART_TYPES = ("text", "input_text", "output_text")
+
+
 def _text_parts(content: Any) -> str:
     if isinstance(content, str):
         return content
     if not isinstance(content, list):
         return ""
+    # 真实 Codex rollout 用的是 input_text（user）/ output_text（assistant），
+    # 早期样例里写的是 text。只认 text 会让真实会话一条都抓不到
+    # （2026-10-17 用当前会话的 rollout 实测：142 条 message，解析结果 0）。
     parts = [
         str(part.get("text") or "")
         for part in content
-        if isinstance(part, dict) and part.get("type") == "text"
+        if isinstance(part, dict) and part.get("type") in TEXT_PART_TYPES
     ]
     return "\n".join(part for part in parts if part.strip())
 

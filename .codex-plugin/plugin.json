@@ -1,6 +1,6 @@
 {
   "name": "knowledge-base-plugin",
-  "version": "1.3.0+codex.20261017132454",
+  "version": "1.3.0+codex.20261017144635",
   "description": "数仓知识库生成流水线：采集(MCP 元数据)→结构化(业务骨架)→质检(冲突/断链/索引)→审阅(Owner 终签)→发布(git + OpenViking 双轨)→反哺(元数据回灌)→沉淀(规则提案)。",
   "author": {
     "name": "AI实战技能圈"
