@@ -29,7 +29,13 @@ PreToolUse 提示）。本插件此前只有 3 个事件且全靠手工 `memory 
 
 回归：`tests/test_memory_hooks.py` 11 条（假 OV 服务端，不依赖外网）+ 全量 180 条
 （3.9 与 3.12 两端）；差距与验收见 `docs/session-memory-hooks-ledger.md`。
-**尚未做真实实例联调**：`<openviking-host>:1933` 当前 TCP 不可达（22/80/443/1933 全 filtered）。
+**线上真跑（2026-10-17）**：对 `<openviking-host>:1933`（0.4.11）跑通
+`Stop（2 条消息）→ PreCompact 提交 → 抽取 1 条记忆（10,661 tokens）→ 召回命中`，
+会话 `cx-online-hook-10172110`；明细见台账第五节。
+
+同时修掉联调时踩到的一处门控误拦：`setup_guard` 现在会识别命令里的 `--root`，
+在未初始化目录里对已初始化项目执行 `kbp.py memory recall --root <项目>` 不再被拦
+（回归 `CliInvocationTests::test_root_flag_reaches_an_initialized_project`）。
 
 ### Fixed（插件测试跑出来的三处真问题，2026-10-14）
 

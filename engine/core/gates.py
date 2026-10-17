@@ -118,6 +118,17 @@ def analyze_command(command: str) -> Dict[str, Any]:
     }
 
 
+def _root_flag(command: str) -> str:
+    """从命令里取 ``--root <path>`` / ``--root=<path>``（支持引号）。"""
+    match = re.search(
+        r"--root(?:=|\s+)(?:\"([^\"]+)\"|'([^']+)'|(\S+))",
+        command or "",
+    )
+    if not match:
+        return ""
+    return (match.group(1) or match.group(2) or match.group(3) or "").strip()
+
+
 # 写文件动词表：覆盖 POSIX shell 与 PowerShell 的常见写法（含重定向）。
 _MUTATOR_RE = re.compile(
     r"\b(rm|del|delete|unlink|remove|mv|move|rename|touch|write_text|write_bytes|remove-item|removeitem|shutil"
@@ -206,6 +217,13 @@ def decide_cli_command(command: str, root: Optional[Path] = None) -> Decision:
             reason="禁止通过 shell 直接改 rules/：沉淀铁律必走 data-quality-kb-maintain 提案（propose → 门禁 → Owner approve）。",
         )
     kb_root = context.project_root(root)
+    if kb_root is None and analysis["is_kb_cli"]:
+        # 引擎支持 `--root <项目>`：在未初始化目录里对**已初始化项目**执行命令是合法的。
+        # 旧实现只认调用方 cwd，实测 `kbp.py memory recall --root <已初始化项目>` 被
+        # setup_guard 误拦（2026-10-17 真机联调时踩到）。
+        root_arg = _root_flag(command)
+        if root_arg:
+            kb_root = context.project_root(Path(root_arg).expanduser())
     if analysis["is_kb_cli"] and not analysis["is_setup"] and kb_root is None:
         return Decision("block", gate="setup_guard", reason="未初始化 .kb 知识库项目：先运行 /kb-setup。")
     if kb_root is None:

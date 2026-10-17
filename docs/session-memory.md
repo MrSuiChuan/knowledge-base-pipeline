@@ -290,3 +290,11 @@ OpenViking 官方 Codex 插件（`examples/codex-memory-plugin`）把同一套 A
 - **本轮不做**：Node stdio MCP 代理、profile/技能目录注入、usage 报表（官方插件有，另行立项）。
 - 本机 Codex 0.135 不支持 `SessionEnd`；`Stop + PreCompact + SessionStart 清扫` 已经覆盖
   正常退出、压缩和异常退出三种情况。
+
+### 线上验证（2026-10-17）
+
+对 `http://<openviking-host>:1933`（0.4.11）用真实 hook 跑过一轮：`Stop` 追加 2 条消息
+（`pending_tokens=82`）→ `PreCompact` 提交 → 24 秒后抽取 **1 条记忆**（10,661 tokens），
+落在 `viking://user/<user>/memories/preferences/当前用户/代码风格.md`；用
+`memory recall --query "SQL 缩进偏好"` 第一条就命中它。会话留证
+`cx-online-hook-10172110`，明细见 `docs/session-memory-hooks-ledger.md` 第五节。

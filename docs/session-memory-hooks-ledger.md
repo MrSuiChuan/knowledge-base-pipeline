@@ -58,4 +58,24 @@ OpenViking 官方为 Codex 提供了 `openviking-memory` 插件（`examples/code
 | 全量单测（3.12） | 180 OK |
 | 全量单测（3.9，CI 矩阵下限） | 180 OK |
 | `tools/ci_check.py --fast` | compileall / OSS 标准 / 两条脱敏扫描 / hook 接线 / 门控回归 全 OK |
-| 真实实例联调 | 未做：`<openviking-host>:1933` 当前 TCP 不可达（22/80/443/1933 全 filtered），等环境恢复后补一条真实 `Stop → commit → status` 留证 |
+| 真实实例联调 | ✅ 已完成（2026-10-17，见第五节）：线上 0.4.11，2 条消息 → 提交 → 抽取 1 条记忆（10,661 tokens）→ 召回命中 |
+
+## 五、线上真跑（2026-10-17）
+
+环境：`http://<openviking-host>:1933`（OpenViking 0.4.11，`auth_mode=api_key`，`/health=200`、`/ready=200`）。
+临时项目：`%TEMP%\ov-online-hook-test\proj`（`ov.url` 显式写线上地址，`api_key_file` 指向本机密钥；
+阈值调到 10 万，确保是 PreCompact 提交而不是 Stop 自动提交）。
+
+Transcript：user 一条（三条事实：user_id STRING / 活跃定义 / SQL 4 空格）+ 一个 function_call + assistant 一条。
+
+| 步骤 | 结果 |
+| --- | --- |
+| `hooks/stop.py`（真实 hook，stdin=Codex payload） | 退出码 0，输出 `{}`；服务端会话 `cx-online-hook-10172110`：`message_count=2`、`pending_tokens=82`、`commit_count=0`（function_call 被正确忽略） |
+| `hooks/precompact.py`（真实 hook） | 退出码 0，输出 `{}`；`commit_count=1`，约 24 秒后抽取完成 |
+| 服务端会话回读 | `memories_extracted.total=1`、`llm_token_usage.total_tokens=10661`、`uri=viking://user/<user>/sessions/cx-online-hook-10172110` |
+| 记忆落点 | `viking://user/<user>/memories/preferences/当前用户/代码风格.md`（modTime `2026-10-17T13:11:48Z`），内容含上述三条事实 |
+| 召回（新 `memory recall` 路径） | query="SQL 缩进偏好" → 第 1 条命中该文件；同批还有 10-11 的三条旧记忆 |
+
+附带修复：真机联调时发现 `setup_guard` 不认 `--root`——在未初始化目录里对已初始化项目执行
+`kbp.py memory recall --root <项目>` 会被误拦。`engine/core/gates.py` 现在会从命令里取
+`--root` 解析项目（回归：`tests/test_engine.py::CliInvocationTests::test_root_flag_reaches_an_initialized_project`）。

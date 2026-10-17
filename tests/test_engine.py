@@ -153,6 +153,22 @@ class CliInvocationTests(unittest.TestCase):
         decision = gates.decide_cli_command("py -3 engine/kbp.py setup --mode mock", self.empty)
         self.assertFalse(decision.blocked(), decision)
 
+    def test_root_flag_reaches_an_initialized_project(self) -> None:
+        """在未初始化目录里对已初始化项目执行 `--root` 命令是合法的。
+
+        真机联调（2026-10-17）时踩到：在插件仓库里跑
+        `kbp.py memory recall --root <已初始化的临时项目>` 被 setup_guard 误拦。
+        """
+        project = Path(tempfile.mkdtemp(prefix="kb-root-flag-"))
+        self.addCleanup(shutil.rmtree, project, True)
+        context.ensure_app_dir(project, mode="mock", domain="user")
+        command = f"kbp.py memory recall --query x --root {project}"
+        decision = gates.decide_cli_command(command, self.empty)
+        self.assertFalse(decision.blocked(), decision)
+        # 没有 --root 时仍然按"未初始化"拦
+        blocked = gates.decide_cli_command("kbp.py memory recall --query x", self.empty)
+        self.assertEqual("setup_guard", blocked.gate)
+
 
 class ConsumerContractTests(KbBase):
     """跨插件契约（**生产端**）：发布时写进 data-development-plugin mock 知识库索引的形状。
