@@ -243,3 +243,50 @@ memory status -> commit_count=1，message_count=0（已归档）
 
 三条记忆与写入的事实一一对应——**计数、内容、召回三样都对上了**。
 本次只在 `.tmp` 下的临时项目操作，正式项目一行未改。
+
+## 七、自动捕获与召回（2026-10-17）
+
+上面 §六 的链路是**手工驱动**的：`memory add` 写、`memory commit` 提交，跑一次就停。
+OpenViking 官方 Codex 插件（`examples/codex-memory-plugin`）把同一套 API 接成了生命周期
+自动链路，本插件按它的语义补齐了 hook：
+
+| Codex 事件 | 本插件 hook | 行为 |
+| --- | --- | --- |
+| `SessionStart` | `sessionstart.py` | 建/复用会话；**空闲超过 30 分钟的会话补捕获并提交**（崩溃/未触发 SessionEnd 的兜底） |
+| `UserPromptSubmit` | `userpromptsubmit.py` | 按本轮 prompt 检索 `viking://user` 下的记忆，注入 `additionalContext`（失败静默） |
+| `Stop` | `stop.py` | **每轮**把 transcript 里新增的 user/assistant 轮次追加进会话（按水位去重） |
+| `PreCompact` | `precompact.py` | 压缩前补捕获剩余轮次并提交会话 |
+| `SessionEnd` | `sessionend.py` | 宽限期退出时提交（**Codex ≥ 0.145 才触发**；旧版本由 SessionStart 清扫兜底） |
+
+会话 id 采用官方约定 `cx-<codex-session-id>`，与手工 `memory begin` 的 UUID 会话并存；
+水位与 transcript 路径记在 `.kb/runtime/memory/host-sessions.json`。
+
+### 怎么开
+
+```jsonc
+// .kb/config.json
+"ov": {
+  "memory_enabled": true,        // 总开关（默认 false）
+  "remote_enabled": true,
+  "url": "http://<openviking-host>:1933",   // 留空时回退读 ~/.openviking/ovcli.conf
+  "api_key_file": "C:/Users/<you>/.openviking/api.key",
+  "auto_capture": true,          // Stop 逐轮捕获
+  "auto_recall": true,           // UserPromptSubmit 召回
+  "capture_mode": "all",         // all | keyword（只在"记住/保存/记录"时捕获）
+  "commit_token_threshold": 20000,
+  "recall_limit": 6,
+  "session_idle_ttl_minutes": 30
+}
+```
+
+配置也可以只写 `~/.openviking/ovcli.conf`（官方 CLI 那份）：`ov.url` 为空时插件读它的
+`url/api_key/account/user` 作回退，和官方插件一致。
+
+### 边界
+
+- **提交才会产生记忆**：Stop 只追加消息；阈值、PreCompact、SessionEnd、空闲清扫才 commit。
+  commit 会消耗模型配额，所以默认阈值 2 万 token，不在每一轮提交。
+- **hook 全部 fail-open**：服务不可达、鉴权失败、transcript 读不到，都只提示/静默，不影响对话。
+- **本轮不做**：Node stdio MCP 代理、profile/技能目录注入、usage 报表（官方插件有，另行立项）。
+- 本机 Codex 0.135 不支持 `SessionEnd`；`Stop + PreCompact + SessionStart 清扫` 已经覆盖
+  正常退出、压缩和异常退出三种情况。

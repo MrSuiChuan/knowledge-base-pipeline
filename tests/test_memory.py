@@ -100,8 +100,10 @@ class SettingsTests(MemoryBase):
         cfg = context.load_config(self.root)
         cfg["ov"]["url"] = ""
         context.write_json(context.config_path(self.root), cfg)
-        with self.assertRaises(ov_remote.OVConfigError):
-            ov_memory.client_for(self.root)
+        # 本机 ~/.openviking/ovcli.conf 会被当作回退来源；这条测的是"两边都没有 url"。
+        with mock.patch.object(ov_remote, "_ovcli_conf", return_value={}):
+            with self.assertRaises(ov_remote.OVConfigError):
+                ov_memory.client_for(self.root)
 
     def test_local_server_needs_no_api_key(self) -> None:
         """本机 OpenViking 是 dev 模式、没有密钥；硬要 key 会让本地部署装好即不可用。"""

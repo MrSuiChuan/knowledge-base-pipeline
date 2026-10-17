@@ -37,7 +37,10 @@ embedding / vlm 配额。所以本模块默认**只提交不等待**由调用方
 
 from __future__ import annotations
 
+import json
+import re
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -453,3 +456,356 @@ def mark_used(
         raise MemoryError("memory_no_session", "还没有绑定会话：先跑 kbp.py memory begin")
     result = client.record_used(session_id, contexts=contexts, skill=skill)
     return {"ok": True, "session_id": session_id, "server": result}
+
+
+# --------------------------------------------------------------------------------------
+# 自动捕获 / 召回（对齐 OpenViking 官方 Codex 插件，2026-10-17）
+#
+# 官方实现：examples/codex-memory-plugin/scripts/{auto-capture,auto-recall,session-*}.mjs
+# 事件：Stop 每轮 add_message、PreCompact/SessionEnd commit、SessionStart 清扫空闲会话、
+# UserPromptSubmit 注入召回。这里用同一套会话 id 约定（cx-<codex-session-id>）与水位去重。
+# --------------------------------------------------------------------------------------
+
+HOST_STATE_FILE = "host-sessions.json"
+CAPTURE_FORMAT_VERSION = 1
+
+
+def host_state_path(root: Path) -> Path:
+    return state_dir(root) / HOST_STATE_FILE
+
+
+def load_host_state(root: Path) -> Dict[str, Any]:
+    data = context.load_json(host_state_path(root), {}) or {}
+    if not isinstance(data.get("sessions"), dict):
+        data["sessions"] = {}
+    return data
+
+
+def save_host_state(root: Path, state: Dict[str, Any]) -> Path:
+    path = host_state_path(root)
+    context.write_json(path, state)
+    return path
+
+
+def derive_ov_session_id(codex_session_id: str) -> str:
+    """Codex 会话 id → OpenViking 会话 id（官方约定 ``cx-<id>``）。"""
+    raw = "".join(ch if (ch.isalnum() or ch in "-._") else "-" for ch in str(codex_session_id or "")).strip("-")
+    raw = raw[:96] or "unknown"
+    return "cx-" + raw
+
+
+def _text_parts(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts = [
+        str(part.get("text") or "")
+        for part in content
+        if isinstance(part, dict) and part.get("type") == "text"
+    ]
+    return "\n".join(part for part in parts if part.strip())
+
+
+def _normalize_entry(entry: Any) -> List[Dict[str, str]]:
+    """把一条 rollout 记录归一成 0..n 条 ``{role, content}``（只取 user/assistant 文本）。"""
+    if not isinstance(entry, dict):
+        return []
+    if entry.get("type") == "history_mutation":
+        payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+        if payload.get("operation") != "append" or not isinstance(payload.get("items"), list):
+            return []
+        out: List[Dict[str, str]] = []
+        for item in payload["items"]:
+            out.extend(_normalize_entry({"type": "response_item", "payload": item}))
+        return out
+    payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else entry
+    ptype = str(payload.get("type") or "")
+    if ptype == "message":
+        role = str(payload.get("role") or "").strip().lower()
+        if role in ("user", "assistant"):
+            text = _text_parts(payload.get("content")).strip()
+            return [{"role": role, "content": text}] if text else []
+        return []
+    if ptype in ("user_message", "agent_message"):
+        text = payload.get("message") or payload.get("text") or ""
+        role = "user" if ptype == "user_message" else "assistant"
+        text = str(text).strip()
+        return [{"role": role, "content": text}] if text else []
+    return []
+
+
+def read_transcript_turns(transcript_path: Path) -> Tuple[List[Dict[str, str]], bool]:
+    """读 Codex rollout（JSONL 或 JSON 数组）。
+
+    返回 ``(turns, ok)``：``ok=False`` 表示读不到（不能当成"会话变短"去重置水位）。
+    """
+    try:
+        raw = Path(transcript_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return [], False
+    if not raw.strip():
+        return [], True
+    entries: List[Any] = []
+    stripped = raw.lstrip()
+    if stripped.startswith("["):
+        try:
+            data = json.loads(raw)
+            entries = data if isinstance(data, list) else []
+        except json.JSONDecodeError:
+            entries = []
+    else:
+        for line in raw.splitlines():
+            if not line.strip():
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    turns: List[Dict[str, str]] = []
+    for entry in entries:
+        turns.extend(_normalize_entry(entry))
+    return turns, True
+
+
+def _has_capture_keyword(turns: Iterable[Dict[str, str]]) -> bool:
+    return any(
+        re.search(r"\b(remember|memorize|store|save|capture|note|record)\b|记住|保存|记录|记忆", turn.get("content") or "", re.I)
+        for turn in turns
+    )
+
+
+def _ensure_session(client: "MemoryClient", ov_session_id: str) -> None:
+    """会话不存在就建；已存在（或服务端语义不同）时静默复用。"""
+    try:
+        client.get_session(ov_session_id)
+        return
+    except ov_remote.OVRemoteError as exc:
+        if exc.http_status not in (404, 410) and exc.code not in ("NOT_FOUND", "not_found", "session_not_found"):
+            raise
+    try:
+        client.create_session(ov_session_id)
+    except ov_remote.OVRemoteError as exc:
+        if exc.http_status not in (409, 400) and exc.code not in ("ALREADY_EXISTS", "already_exists", "CONFLICT"):
+            raise
+
+
+def _parse_stamp(value: Any) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        stamp = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return stamp
+
+
+def _pending_tokens(client: "MemoryClient", ov_session_id: str) -> int:
+    try:
+        meta = client.get_session(ov_session_id) or {}
+    except ov_remote.OVRemoteError:
+        return 0
+    try:
+        return int((meta or {}).get("pending_tokens") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def capture_from_transcript(
+    root: Path,
+    transcript_path: str,
+    codex_session_id: Optional[str] = None,
+    *,
+    client: Optional["MemoryClient"] = None,
+    commit_threshold: Optional[int] = None,
+) -> Dict[str, Any]:
+    """把 transcript 里的**新增** user/assistant 轮次追加到 OpenViking 会话。
+
+    水位按「已捕获的归一化 turn 数」记在每个 Codex session 名下；transcript 变短
+    （`/compact` 重写）时从最近一条 user 轮次续接，不整段重放。
+    """
+    config = context.load_config(root)
+    settings = memory_settings(config)
+    require_enabled(settings)
+    client = client or client_for(root)
+    turns, ok = read_transcript_turns(Path(transcript_path))
+    if not ok:
+        raise MemoryError("memory_transcript", f"读取 transcript 失败：{transcript_path}")
+    key = str(codex_session_id or "manual").strip() or "manual"
+    state = load_host_state(root)
+    entry = state["sessions"].setdefault(
+        key,
+        {
+            "ov_session_id": derive_ov_session_id(key),
+            "captured_turn_count": 0,
+            "capture_format_version": CAPTURE_FORMAT_VERSION,
+            "created_at": context.utcnow(),
+        },
+    )
+    if int(entry.get("capture_format_version") or 0) != CAPTURE_FORMAT_VERSION:
+        entry["captured_turn_count"] = 0
+        entry["capture_format_version"] = CAPTURE_FORMAT_VERSION
+    captured = max(0, int(entry.get("captured_turn_count") or 0))
+    if turns and len(turns) < captured:
+        # transcript 被压缩/重写：从最近一条 user 轮次续接
+        resume = next((i for i in range(len(turns) - 1, -1, -1) if turns[i]["role"] == "user"), 0)
+        captured = resume
+    new_turns = turns[captured:]
+    ov = config.get("ov") or {}
+    mode = str(ov.get("capture_mode") or "all").strip().lower()
+    if mode == "keyword" and new_turns and not _has_capture_keyword(new_turns):
+        return {"ok": True, "added": 0, "skipped": "keyword", "session_id": entry["ov_session_id"]}
+    added = 0
+    if new_turns:
+        _ensure_session(client, entry["ov_session_id"])
+        client.add_messages(entry["ov_session_id"], new_turns)
+        added = len(new_turns)
+        entry["captured_turn_count"] = captured + added
+        entry["last_capture_at"] = context.utcnow()
+        entry["transcript_path"] = str(transcript_path)
+        save_host_state(root, state)
+    commit_info: Dict[str, Any] = {"committed": False}
+    threshold = commit_threshold
+    if threshold is None:
+        try:
+            threshold = int(ov.get("commit_token_threshold") or 0)
+        except (TypeError, ValueError):
+            threshold = 0
+    if added and threshold and threshold > 0:
+        pending = _pending_tokens(client, entry["ov_session_id"])
+        if pending >= threshold:
+            result = client.commit(entry["ov_session_id"], keep_recent_count=0)
+            entry["last_commit_at"] = context.utcnow()
+            entry["commits"] = int(entry.get("commits") or 0) + 1
+            save_host_state(root, state)
+            commit_info = {"committed": True, "pending_tokens": pending, "task_id": result.get("task_id")}
+        else:
+            commit_info = {"committed": False, "pending_tokens": pending}
+    return {
+        "ok": True,
+        "session_id": entry["ov_session_id"],
+        "added": added,
+        "captured_turn_count": entry["captured_turn_count"],
+        "commit": commit_info,
+    }
+
+
+def _recall_items(result: Any) -> List[Dict[str, Any]]:
+    if isinstance(result, list):
+        return [item for item in result if isinstance(item, dict)]
+    if isinstance(result, dict):
+        for key in ("memories", "items", "results", "resources"):
+            value = result.get(key)
+            if isinstance(value, list) and value:
+                return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def recall_block(
+    root: Path,
+    query: str,
+    *,
+    limit: Optional[int] = None,
+    client: Optional["MemoryClient"] = None,
+    max_chars: int = 4000,
+) -> str:
+    """按 prompt 检索记忆，返回可直接注入的紧凑文本块（无命中返回空串）。"""
+    config = context.load_config(root)
+    require_enabled(memory_settings(config))
+    text = str(query or "").strip()
+    if len(text) < 2:
+        return ""
+    client = client or client_for(root)
+    ov = config.get("ov") or {}
+    try:
+        limit = int(limit or ov.get("recall_limit") or 6)
+    except (TypeError, ValueError):
+        limit = 6
+    body: Dict[str, Any] = {
+        "query": text,
+        "target_uri": "viking://user",
+        "limit": max(1, min(limit, 20)),
+        "score_threshold": 0,
+    }
+    session_id = current_session(root)
+    if session_id:
+        body["session_id"] = session_id
+    try:
+        result = client.request("POST", "/api/v1/search/search", body=body)
+    except ov_remote.OVRemoteError as exc:
+        if exc.http_status in (404, 405) or exc.code in ("NOT_FOUND", "not_found", "METHOD_NOT_ALLOWED"):
+            result = client.request("POST", "/api/v1/search/find", body=body)
+        else:
+            raise
+    items = _recall_items(result)
+    if not items:
+        return ""
+    lines = [
+        "<openviking-memory>",
+        "以下是 OpenViking 里与本轮问题相关的记忆（只读参考；与当前代码/用户当次确认冲突时以现场为准）：",
+    ]
+    for index, item in enumerate(items[:limit], 1):
+        uri = str(item.get("uri") or item.get("path") or "")
+        body_text = str(item.get("abstract") or item.get("text") or item.get("content") or "").strip()
+        body_text = " ".join(body_text.split())[:400]
+        lines.append(f"{index}. {uri}\n   {body_text}")
+    lines.append("</openviking-memory>")
+    return "\n".join(lines)[:max_chars]
+
+
+def sweep_idle_sessions(
+    root: Path,
+    *,
+    ttl_minutes: Optional[int] = None,
+    client: Optional["MemoryClient"] = None,
+    limit: int = 3,
+) -> Dict[str, Any]:
+    """SessionStart 兜底：空闲超过 TTL 的会话补捕获剩余轮次并提交。"""
+    config = context.load_config(root)
+    require_enabled(memory_settings(config))
+    ov = config.get("ov") or {}
+    try:
+        ttl = int(ttl_minutes or ov.get("session_idle_ttl_minutes") or 30)
+    except (TypeError, ValueError):
+        ttl = 30
+    state = load_host_state(root)
+    now = datetime.now(timezone.utc)
+    swept: List[Dict[str, Any]] = []
+    for key, entry in sorted(state["sessions"].items(), key=lambda kv: str(kv[1].get("last_capture_at") or "")):
+        if len(swept) >= limit:
+            break
+        stamp = _parse_stamp(entry.get("last_capture_at") or entry.get("created_at"))
+        if stamp is None or (now - stamp).total_seconds() < ttl * 60:
+            continue
+        captured = 0
+        transcript = entry.get("transcript_path")
+        if transcript:
+            try:
+                result = capture_from_transcript(
+                    root, transcript, key, client=client, commit_threshold=10**9
+                )
+                captured = int(result.get("added") or 0)
+            except (MemoryError, ov_remote.OVRemoteError, OSError):
+                continue
+        try:
+            client = client or client_for(root)
+            commit = client.commit(entry["ov_session_id"], keep_recent_count=0)
+        except (MemoryError, ov_remote.OVRemoteError):
+            continue
+        entry["last_commit_at"] = context.utcnow()
+        entry["swept_at"] = context.utcnow()
+        entry["commits"] = int(entry.get("commits") or 0) + 1
+        swept.append({"session": key, "captured": captured, "task_id": (commit or {}).get("task_id")})
+    if swept:
+        save_host_state(root, state)
+    return {"ok": True, "swept": swept, "ttl_minutes": ttl}
+
+
+def client_for_hook(root: Path, timeout: float = 8.0) -> "MemoryClient":
+    """hook 专用客户端：短超时，避免宿主 hook 被一个挂住的请求拖死。"""
+    settings = memory_settings(context.load_config(root))
+    settings["timeout"] = float(timeout)
+    return MemoryClient(settings)

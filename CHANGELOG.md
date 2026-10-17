@@ -4,6 +4,33 @@
 
 <!-- 下一条改动写在上面这一节 -->
 
+### Added（会话记忆自动捕获：对齐 OpenViking 官方 Codex 插件，2026-10-17）
+
+官方为 Codex 提供 `openviking-memory` 插件，用 6 个生命周期事件把记忆做成自动链路
+（SessionStart 注入 / UserPromptSubmit 召回 / Stop 逐轮捕获 / PreCompact 与 SessionEnd 提交 /
+PreToolUse 提示）。本插件此前只有 3 个事件且全靠手工 `memory add`，所以"实时同步"从未发生。
+
+- **`Stop` 逐轮捕获**（`hooks/stop.py` + `memory capture`）：解析 Codex rollout JSONL，
+  只取 user/assistant 文本，按每会话水位去重；transcript 被 `/compact` 重写时从最近一条
+  user 轮次续接，不整段重放；
+- **`UserPromptSubmit` 自动召回**（`hooks/userpromptsubmit.py` + `memory recall`）：
+  按本轮 prompt 检索 `viking://user`，以 `<openviking-memory>` 紧凑块注入
+  `hookSpecificOutput.additionalContext`；失败静默（fail-open）；
+- **阈值提交**：`pending_tokens >= ov.commit_token_threshold`（默认 2 万）才 commit，
+  避免每轮消耗模型配额；
+- **`PreCompact` / `SessionEnd` 提交**（`hooks/precompact.py`、`hooks/sessionend.py`）；
+  SessionEnd 需要 Codex ≥ 0.145，本机 0.135 由 SessionStart 的空闲清扫兜底；
+- **`SessionStart` 空闲清扫**：超过 30 分钟未捕获的会话补捕获并提交（最多 3 个/次）；
+- **配置与官方对齐**：`ov.url` 为空时回退读 `~/.openviking/ovcli.conf` 的
+  `url/api_key/account/user`；
+- 新增配置项：`auto_capture`、`auto_recall`、`capture_mode`、`commit_token_threshold`、
+  `recall_limit`、`recall_timeout_s`、`session_idle_ttl_minutes`（均只在
+  `memory_enabled=true` 时生效）。
+
+回归：`tests/test_memory_hooks.py` 11 条（假 OV 服务端，不依赖外网）+ 全量 180 条
+（3.9 与 3.12 两端）；差距与验收见 `docs/session-memory-hooks-ledger.md`。
+**尚未做真实实例联调**：`<openviking-host>:1933` 当前 TCP 不可达（22/80/443/1933 全 filtered）。
+
 ### Fixed（插件测试跑出来的三处真问题，2026-10-14）
 
 用一份 119 条用例的测试实验台逐条跑本插件的七个环节与 hook 门控，三处不通过：

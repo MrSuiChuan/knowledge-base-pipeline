@@ -168,6 +168,15 @@ def default_config(domain: str = "user") -> Dict[str, Any]:
             "memory_enabled": False,
             "keep_recent_count": 10,  # commit 后保留多少条最近消息留在活动会话里
             "task_timeout": 180,  # 后台记忆抽取任务的等待上限（秒）
+            # ---- 自动捕获 / 召回（对齐 OpenViking 官方 Codex 插件）----
+            # 记忆总开关仍是 memory_enabled；下面两个开关只在总开关打开时生效。
+            "auto_capture": True,   # Stop hook：每轮把新对话追加进会话
+            "auto_recall": True,    # UserPromptSubmit hook：按 prompt 检索并注入相关记忆
+            "capture_mode": "all",  # all | keyword（keyword 只在对话里出现"记住/保存/记录"时捕获）
+            "commit_token_threshold": 20000,  # 待提交 token 超过它就自动 commit
+            "recall_limit": 6,      # 每次召回最多注入几条
+            "recall_timeout_s": 8,  # 召回超时（hook 必须快速返回）
+            "session_idle_ttl_minutes": 30,  # SessionStart 清扫：空闲超过它就补捕获并提交
         },
         "created_at": "",
         "updated_at": "",

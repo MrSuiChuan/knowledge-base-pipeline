@@ -71,9 +71,11 @@ class ConfigTests(unittest.TestCase):
 
     def test_missing_url_blocks(self) -> None:
         cfg = self._cfg(url="")
-        with mock.patch.dict(os.environ, {"OV_API_KEY": "x" * 20}, clear=False):
-            with self.assertRaises(ov_remote.OVConfigError):
-                ov_remote.resolve_settings(cfg)
+        # ovcli.conf 是回退来源；这条测的是"项目配置与 ovcli.conf 都没有 url"。
+        with mock.patch.object(ov_remote, "_ovcli_conf", return_value={}):
+            with mock.patch.dict(os.environ, {"OV_API_KEY": "x" * 20}, clear=False):
+                with self.assertRaises(ov_remote.OVConfigError):
+                    ov_remote.resolve_settings(cfg)
 
     def test_missing_key_blocks_on_remote_hosts(self) -> None:
         """远端主机缺 key 仍然拦。

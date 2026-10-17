@@ -40,6 +40,31 @@ def _memory_note(root) -> str:
         return ""
 
 
+def _memory_sweep_note(root) -> str:
+    """空闲会话兜底：补捕获剩余轮次并提交（对齐官方 session-start-commit）。
+
+    只处理超过 TTL（默认 30 分钟）没有捕获的会话，最多 3 个；任何失败都静默，
+    绝不拖慢或打断会话启动。
+    """
+    try:
+        settings = ov_memory.memory_settings(context.load_config(root))
+        if not settings.get("enabled"):
+            return ""
+        ov = context.load_config(root).get("ov") or {}
+        if ov.get("auto_capture") is False:
+            return ""
+        result = ov_memory.sweep_idle_sessions(
+            root, client=ov_memory.client_for_hook(root, timeout=5)
+        )
+        swept = result.get("swept") or []
+        if not swept:
+            return ""
+        captured = sum(int(item.get("captured") or 0) for item in swept)
+        return f"会话记忆：已补提交 {len(swept)} 个空闲会话（补捕获 {captured} 轮）"
+    except Exception:
+        return ""
+
+
 def main() -> None:
     payload = load_payload()
     root = project_root(payload)
@@ -76,6 +101,9 @@ def main() -> None:
         note = _memory_note(root)
         if note:
             lines.append(note)
+        sweep_note = _memory_sweep_note(root)
+        if sweep_note:
+            lines.append(sweep_note)
         emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(lines)}})
     except Exception:
         emit({})

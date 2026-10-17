@@ -526,6 +526,45 @@ def verb_memory(flags: Dict[str, str]) -> None:
             uris = [u.strip() for u in (flags.get("uris") or "").split(",") if u.strip()]
             emit(ov_memory.mark_used(ROOT, contexts=uris or None))
             return
+        if sub == "capture":
+            transcript = (flags.get("transcript") or "").strip()
+            if not transcript:
+                emit({"ok": False, "gate": "memory_usage", "reason": "缺少 --transcript <Codex rollout 路径>"})
+                sys.exit(2)
+            emit(
+                ov_memory.capture_from_transcript(
+                    ROOT,
+                    transcript,
+                    (flags.get("session") or "").strip() or None,
+                    client=ov_memory.client_for_hook(ROOT, timeout=30),
+                )
+            )
+            return
+        if sub == "recall":
+            query = (flags.get("query") or "").strip()
+            if not query:
+                emit({"ok": False, "gate": "memory_usage", "reason": "缺少 --query <检索文本>"})
+                sys.exit(2)
+            try:
+                limit = int(flags.get("limit") or 0) or None
+            except ValueError:
+                limit = None
+            block = ov_memory.recall_block(
+                ROOT, query, limit=limit, client=ov_memory.client_for_hook(ROOT, timeout=10)
+            )
+            emit({"ok": True, "block": block, "chars": len(block)})
+            return
+        if sub == "sweep":
+            try:
+                ttl = int(flags.get("ttl-minutes") or 0) or None
+            except ValueError:
+                ttl = None
+            emit(
+                ov_memory.sweep_idle_sessions(
+                    ROOT, ttl_minutes=ttl, client=ov_memory.client_for_hook(ROOT, timeout=6)
+                )
+            )
+            return
         if sub == "status":
             emit(ov_memory.status(ROOT))
             return
@@ -719,6 +758,10 @@ verbs:
                                          # 归档 + 触发记忆抽取（消耗模型配额）；默认等到任务终态
   memory used --uris <viking://a,viking://b>   # 记录本次用到了哪些上下文
   memory status                          # 回读服务端会话：message_count / memories_extracted
+  memory capture --transcript <rollout> [--session <codex-id>]
+                                         # 自动捕获：把 rollout 里新增的 user/assistant 轮次追加进会话
+  memory recall --query <文本> [--limit N]  # 按文本检索记忆，返回可注入的紧凑文本块
+  memory sweep [--ttl-minutes N]          # 兜底：空闲会话补捕获并提交
   status [--domain d]
   demo [--domain user]
 

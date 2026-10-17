@@ -97,6 +97,27 @@ def is_local_url(url: str) -> bool:
     return host.lower() in LOCAL_HOSTS
 
 
+def _ovcli_conf() -> Dict[str, Any]:
+    """读 ``~/.openviking/ovcli.conf``（官方 ``ov`` CLI 的配置）。
+
+    作为 ``ov.url`` / ``api_key`` / ``account`` / ``user`` 的回退：官方 Codex 插件就是
+    从这份文件取连接的。读不到或解析失败一律返回空字典，不影响项目级配置。
+    """
+    from pathlib import Path as _Path
+
+    configured = os.environ.get("OPENVIKING_CLI_CONFIG_FILE", "").strip()
+    try:
+        path = _Path(configured) if configured else _Path.home() / ".openviking" / "ovcli.conf"
+    except (RuntimeError, OSError):
+        # 测试里会 clear 掉 HOME/USERPROFILE；取不到家目录就当没有这份配置。
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def resolve_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     """从 config.json 的 ``ov`` 段解析传输参数。
 
@@ -105,9 +126,18 @@ def resolve_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     落盘到 git 可见的配置文件。
     """
     ov = config.get("ov") or {}
+    cli_conf = _ovcli_conf()
     url = str(ov.get("url") or "").strip().rstrip("/")
     if not url:
-        raise OVConfigError("缺少 ov.url：请在 .kb/config.json 配置 OpenViking 服务地址")
+        # 与 OpenViking 官方 Codex 插件对齐：项目配置没写 url 时，回退读
+        # ~/.openviking/ovcli.conf（`ov` CLI 用的那份）。这样"只配了 ovcli.conf"
+        # 的用户不会看到插件说"缺 ov.url"（2026-10-17 实测踩到）。
+        url = str(cli_conf.get("url") or "").strip().rstrip("/")
+    if not url:
+        raise OVConfigError(
+            "缺少 ov.url：请在 .kb/config.json 配置 OpenViking 服务地址"
+            "（或写 ~/.openviking/ovcli.conf 的 url）"
+        )
     if not url.startswith(("http://", "https://")):
         raise OVConfigError(f"ov.url 必须是 http(s):// 地址: {url!r}")
 
@@ -122,6 +152,8 @@ def resolve_settings(config: Dict[str, Any]) -> Dict[str, Any]:
                     key = handle.read().strip().splitlines()[0].strip()
             except (OSError, IndexError) as exc:
                 raise OVConfigError(f"读取 ov.api_key_file 失败: {key_file}: {exc}") from exc
+    if not key:
+        key = str(cli_conf.get("api_key") or "").strip()
     if not key and not is_local_url(url):
         raise OVConfigError(
             f"缺少 API Key：请设置环境变量 {env_name}（或配置 ov.api_key_file 指向本地密钥文件）"
@@ -139,8 +171,8 @@ def resolve_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "url": url,
         "api_key": key,
-        "account": str(ov.get("account") or "").strip(),
-        "user": str(ov.get("user") or "").strip(),
+        "account": str(ov.get("account") or cli_conf.get("account") or "").strip(),
+        "user": str(ov.get("user") or cli_conf.get("user") or "").strip(),
         "timeout": timeout,
         "wait": bool(ov.get("wait", True)),
     }
