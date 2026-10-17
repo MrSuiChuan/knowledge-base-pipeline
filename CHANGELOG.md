@@ -4,6 +4,18 @@
 
 <!-- 下一条改动写在上面这一节 -->
 
+### Tested（会话记忆全流程端到端测试，2026-10-17）
+
+- **线上实例** `<openviking-host>:1933`（OpenViking 0.4.11）：`kb-e2e-lab` **20/20 PASS**
+  —— 连通/鉴权、`Stop` 逐轮捕获（2 条消息，跳过 tool_call）、重复 Stop 去重、
+  `PreCompact` 提交、抽取 1 条记忆（10,703 tokens）、记忆落到
+  `preferences/当前用户/代码风格.md`、语义召回命中、`UserPromptSubmit` 注入
+  `additionalContext`、keyword 模式不建会话、`/compact` 后从最近 user 轮续接、
+  阈值提交、5 条失败路径全部 fail-open；
+- **全量回归** `ddp-testlab` **135/135 PASS**（825.6 秒）：知识流水线 38 条、
+  离线插件 72 条、结构与 hooks 18 条、跨插件 7 条；
+- 台账（含会话 id 与逐条回执）：`docs/session-memory-e2e-ledger.md`。
+
 ### Added（会话记忆自动捕获：对齐 OpenViking 官方 Codex 插件，2026-10-17）
 
 官方为 Codex 提供 `openviking-memory` 插件，用 6 个生命周期事件把记忆做成自动链路
